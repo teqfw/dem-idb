@@ -37,7 +37,7 @@ test('DEM repositories and schema lifecycle on real browser IndexedDB', {timeout
         assert.equal(observed.error,undefined,observed.error);
         if (process.env.DEM_COMPARE_OUTPUT) await writeFile(process.env.DEM_COMPARE_OUTPUT,JSON.stringify(observed));
         for (const row of observed.results) console.log(`${row.passed ? 'PASS' : 'FAIL'} ${row.name}${row.error ? '\n'+row.error : ''}`);
-        assert.ok(observed.results.length >= 16);
+        assert.ok(observed.results.length >= 27);
         assert.deepEqual(observed.results.filter(row=>!row.passed),[]);
         console.log(observed.browser);
     } finally {

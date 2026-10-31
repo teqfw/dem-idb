@@ -232,6 +232,61 @@ test('browser host substitutes the DEM provider through actual DI preprocessing'
     } finally { await provider?.close(); await env.close(); }
 });
 
+test('native key and equality lookup avoid full scans, with non-keyable JSON/boolean fallback',async()=>{
+    const schema=structuredClone(simple);
+    schema['/app/item'].attributes.push({name:'flag',type:{name:'boolean'}},{name:'payload',type:{name:'json'}});
+    schema['/app/item'].uniqueKeys={name:['name'],flag:['flag'],payload:['payload']};
+    const env=await open({schema});
+    const originalStore=IDBObjectStore.prototype.getAll,originalIndex=IDBIndex.prototype.getAll;
+    let scans=0,indexReads=0;
+    try {
+        const repo=await env.provider.get({path:'/app/item'});
+        const a=(await repo.create({record:{name:'Ada',flag:true,payload:{n:1}}})).record;
+        await repo.create({record:{name:'B',flag:false,payload:{n:2}}});
+        IDBObjectStore.prototype.getAll=function (...args) {if(this.name==='dem:/app/item') scans++;return originalStore.apply(this,args);};
+        IDBIndex.prototype.getAll=function (...args) {indexReads++;return originalIndex.apply(this,args);};
+        assert.deepEqual(await repo.read({key:key(a.id)}),{record:a});
+        assert.deepEqual(await repo.read({key:{kind:'unique',name:'name',values:{name:'Ada'}}}),{record:a});
+        const where={kind:'call',operator:'eq',args:[{kind:'attr',name:'name'},{kind:'value',value:'Ada'}]};
+        assert.deepEqual(await repo.list({selection:{where}}),{records:[a]});
+        assert.equal(scans,0);assert.equal(indexReads,3);
+        assert.equal((await repo.read({key:{kind:'unique',name:'flag',values:{flag:false}}})).record.name,'B');
+        assert.equal((await repo.read({key:{kind:'unique',name:'payload',values:{payload:{n:2}}}})).record.name,'B');
+        assert.equal(scans,2);
+    } finally {IDBObjectStore.prototype.getAll=originalStore;IDBIndex.prototype.getAll=originalIndex;await env.close();}
+});
+
+test('lookup planning falls back when additive defaults are absent in old raw records',async()=>{
+    const env=await open({schema:simple});let next;
+    try {
+        await (await env.provider.get({path:'/app/item'})).create({record:{name:'old'}});
+        const schema=structuredClone(simple);
+        schema['/app/item'].attributes.push({name:'category',type:{name:'text'},default:'default'});
+        schema['/app/item'].indexes={category:{attributes:['category']}};
+        next=await adapter.open({model:await compile(schema),name:env.name});
+        await next.createSchema();
+        const repo=await next.get({path:'/app/item'});
+        const where={kind:'call',operator:'eq',args:[{kind:'attr',name:'category'},{kind:'value',value:'default'}]};
+        const records=(await repo.list({selection:{where}})).records;
+        assert.equal(records.length,1);assert.equal(records[0].name,'old');
+    } finally {await next?.close();await env.close();}
+});
+
+test('index-only schema changes retain safe native lookup coverage',async()=>{
+    const env=await open({schema:simple});let next;
+    const originalStore=IDBObjectStore.prototype.getAll;
+    let scans=0;
+    try {
+        await (await env.provider.get({path:'/app/item'})).create({record:{name:'old'}});
+        const schema=structuredClone(simple);schema['/app/item'].indexes={name:{attributes:['name']}};
+        next=await adapter.open({model:await compile(schema),name:env.name});await next.createSchema();
+        const repo=await next.get({path:'/app/item'});
+        IDBObjectStore.prototype.getAll=function (...args) {if(this.name==='dem:/app/item') scans++;return originalStore.apply(this,args);};
+        const where={kind:'call',operator:'eq',args:[{kind:'attr',name:'name'},{kind:'value',value:'old'}]};
+        assert.equal((await repo.list({selection:{where}})).records.length,1);assert.equal(scans,0);
+    } finally {IDBObjectStore.prototype.getAll=originalStore;await next?.close();await env.close();}
+});
+
 let valueTranscript;
 test('shared multi-engine value workload',async()=>{
     const {model}=await compiler.exec({schemas:[{packageName:'test',filename:'schema.json',document:valueSchema}],map:{packageName:'test',filename:'map.json',document:valueMap}});

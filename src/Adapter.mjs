@@ -74,12 +74,13 @@ export default class Adapter {
                     let cause;
                     request.onblocked = () => { rejected = true; reject(errors.create({code:'STORAGE',message:'Database upgrade is blocked by another connection.'})); };
                     request.onerror = () => reject(cause ?? mapped(request.error));
-                    request.onupgradeneeded = () => {
+                    request.onupgradeneeded = event => {
                         const tx = request.transaction, db = request.result;
                         try {
                             if (rejected || !initialize) fail('UNSUPPORTED', 'Initialize the database explicitly with createSchema().');
                             if (!db.objectStoreNames.contains('dem_schema')) db.createObjectStore('dem_schema', {keyPath:'version'});
                             if (!db.objectStoreNames.contains('dem_sequence')) db.createObjectStore('dem_sequence');
+                            const existed=new Set(Array.from(db.objectStoreNames));
                             for (const path of paths) {
                                 const store = db.objectStoreNames.contains(stores[path]) ? tx.objectStore(stores[path]) : db.createObjectStore(stores[path], {autoIncrement:true});
                                 if (store.keyPath !== null || !store.autoIncrement) fail('UNSUPPORTED', 'Incompatible entity store.');
@@ -95,7 +96,13 @@ export default class Adapter {
                                     if (attrs.every(attr => /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(attr))) store.createIndex(key, attrs, {unique:false});
                                 }
                             }
-                            tx.objectStore('dem_schema').put({version:db.version, layout:1, model:snapshot});
+                            const history=tx.objectStore('dem_schema');
+                            const previous=history.get(event.oldVersion);
+                            previous.onsuccess=()=>{
+                                const before=previous.result;
+                                const nativeLookup=Object.fromEntries(paths.map(path=>[path,!existed.has(stores[path]) || Boolean(before?.layout===1 && (before.nativeLookup?.[path] ?? event.oldVersion===1) && canonical(before.model.entities[path]?.attributes)===canonical(snapshot.entities[path].attributes))]));
+                                history.put({version:db.version,layout:1,model:snapshot,nativeLookup});
+                            };
                         } catch (error) { cause = mapped(error); tx.abort(); }
                     };
                     request.onsuccess = () => {
@@ -203,9 +210,10 @@ export default class Adapter {
              * @param {any} path
              * @param {any} write
              * @param {any} execute
+             * @param {any} [lookup]
              * @returns {Promise<any>}
              */
-            const run = async function (path, write, execute) {
+            const run = async function (path, write, execute, lookup) {
                 const db = await ensure();
                 return new Promise((resolve, reject) => {
                     let tx, result, cause;
@@ -235,22 +243,45 @@ export default class Adapter {
                             } catch (error) { abort(error); }
                         };
                         const meta = tx.objectStore('dem_schema').get(db.version);
-                        meta.onsuccess = () => { valid = meta.result?.layout === 1 && canonical(meta.result.model) === identity; ready(); };
+
                         const seq = tx.objectStore('dem_sequence').get(path);
                         seq.onsuccess = () => { counter = seq.result ?? '0'; ready(); };
-                        for (const p of scoped) {
+                        /**
+                         * @param {any} p
+                         * @param {any} metadata
+                         * @returns {void}
+                         */
+                        const load=function (p,metadata) {
                             let rows, keys;
-                            /**
-                             * @returns {void}
-                             */
-                            const collect = () => {
-                                if (rows && keys) data[p] = rows.map((record,i) => ({key:keys[i], record:logical(snapshot.entities[p],record)}));
+                            /** @returns {void} */
+                            const collect=()=>{
+                                if (rows && keys) data[p]=rows.map((record,i)=>({key:keys[i],record:logical(snapshot.entities[p],record)}));
                                 ready();
                             };
-                            const values = tx.objectStore(stores[p]).getAll(), ids = tx.objectStore(stores[p]).getAllKeys();
-                            values.onsuccess = () => { try { rows = values.result; collect(); } catch (error) { abort(error); } };
-                            ids.onsuccess = () => { try { keys = ids.result; collect(); } catch (error) { abort(error); } };
-                        }
+                            const store=tx.objectStore(stores[p]);
+                            let source=store,range;
+                            if (!write && lookup && (metadata?.nativeLookup?.[p] ?? db.version===1)) {
+                                const indexName=Array.from(store.indexNames).find(name=>{
+                                    const keyPath=store.index(name).keyPath;
+                                    return canonical(Array.isArray(keyPath) ? keyPath : [keyPath])===canonical(lookup.members);
+                                });
+                                if (indexName!==undefined) {
+                                    const index=store.index(indexName);
+                                    const probe=Array.isArray(index.keyPath) ? lookup.values : lookup.values[0];
+                                    try {indexedDB.cmp(probe,probe);source=index;range=probe;} catch {}
+                                }
+                            }
+                            const values=source.getAll(range), ids=source.getAllKeys(range);
+                            values.onsuccess=()=>{try {rows=values.result;collect();} catch(error) {abort(error);}};
+                            ids.onsuccess=()=>{try {keys=ids.result;collect();} catch(error) {abort(error);}};
+                        };
+                        meta.onsuccess=()=>{
+                            try {
+                                valid=meta.result?.layout===1 && canonical(meta.result.model)===identity;
+                                for (const p of scoped) load(p,meta.result);
+                                ready();
+                            } catch(error) {abort(error);}
+                        };
                     } catch (error) { if (tx) { cause = mapped(error); tx.abort(); } else reject(mapped(error)); }
                 });
             };
@@ -299,7 +330,7 @@ export default class Adapter {
                     },
                     read: async function (params) {
                         shape(params,['key']); const key = normalize.key({entity,key:params.key});
-                        return run(path,false,({data}) => { const i = find(data[path],key); return {record:i < 0 ? null : data[path][i].record}; });
+                        return run(path,false,({data}) => { const i = find(data[path],key); return {record:i < 0 ? null : data[path][i].record}; },{members:Object.keys(key.values),values:Object.values(key.values)});
                     },
                     update: async function (params) {
                         shape(params,['key','changes']); const key = normalize.key({entity,key:params.key});
@@ -320,7 +351,8 @@ export default class Adapter {
                     list: async function (params) {
                         shape(params,['selection']);
                         const query=selection.create({entity,selection:params.selection});
-                        return run(path,false,({data})=>evaluate.exec({entity,records:data[path].map(entry=>entry.record),selection:query}));
+                        const lookup=query.where?.operator==='eq' ? {members:[query.where.args[0].name],values:[query.where.args[1].value]} : undefined;
+                        return run(path,false,({data})=>evaluate.exec({entity,records:data[path].map(entry=>entry.record),selection:query}),lookup);
                     },
                 };
             };
