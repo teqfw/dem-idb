@@ -1,0 +1,42 @@
+{
+  "name": "@teqfw/dem-idb",
+  "version": "0.1.0",
+  "description": "IndexedDB persistence adapter for TeqFW Domain Entity Model.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "files": [
+    "src/",
+    "README.md",
+    "LICENSE",
+    "types.d.ts",
+    "skills/"
+  ],
+  "scripts": {
+    "test": "node --test test/integration.test.mjs",
+    "verify": "npm test && npm run typecheck",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@teqfw/dem": "^0.2.0"
+  },
+  "peerDependencies": {
+    "@teqfw/di": "^2.11.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  },
+  "types": "types.d.ts",
+  "exports": {
+    ".": {
+      "types": "./types.d.ts"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/teqfw/dem-idb.git"
+  },
+  "homepage": "https://github.com/teqfw/dem-idb#readme",
+  "publishConfig": {
+    "access": "public"
+  }
+}
