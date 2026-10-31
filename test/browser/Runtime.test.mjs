@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {createServer} from 'node:http';
-import {readFile,mkdtemp,rm} from 'node:fs/promises';
+import {readFile,writeFile,mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -35,6 +35,7 @@ test('DEM repositories and schema lifecycle on real browser IndexedDB', {timeout
             chrome.once('error',reject); chrome.once('exit',code=>reject(new Error('Chrome exited: '+code+' '+stderr)));
         })]);
         assert.equal(observed.error,undefined,observed.error);
+        if (process.env.DEM_COMPARE_OUTPUT) await writeFile(process.env.DEM_COMPARE_OUTPUT,JSON.stringify(observed));
         for (const row of observed.results) console.log(`${row.passed ? 'PASS' : 'FAIL'} ${row.name}${row.error ? '\n'+row.error : ''}`);
         assert.ok(observed.results.length >= 16);
         assert.deepEqual(observed.results.filter(row=>!row.passed),[]);

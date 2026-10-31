@@ -1,5 +1,6 @@
 import Container from '/di/dist/esm.js';
 import {register} from '/dem/conformance/Repository.mjs';
+import {schema as valueSchema,map as valueMap,exercise as valueExercise} from '/dem/conformance/Values.mjs';
 
 const cases = [];
 const test = (name, body) => cases.push({name, body});
@@ -231,9 +232,18 @@ test('browser host substitutes the DEM provider through actual DI preprocessing'
     } finally { await provider?.close(); await env.close(); }
 });
 
+let valueTranscript;
+test('shared multi-engine value workload',async()=>{
+    const {model}=await compiler.exec({schemas:[{packageName:'test',filename:'schema.json',document:valueSchema}],map:{packageName:'test',filename:'map.json',document:valueMap}});
+    const name='dem-idb-values-'+ ++sequence;
+    const provider=await adapter.open({model,name});
+    try {await provider.createSchema();valueTranscript=await valueExercise({provider,assert});}
+    finally {await provider.close();await remove(name);}
+});
+
 const results = [];
 for (const {name,body} of cases) {
     try { await body(); results.push({name,passed:true}); }
     catch (error) { results.push({name,passed:false,error:(error.stack ?? String(error)) + (error.diagnostics ? JSON.stringify(error.diagnostics) : '')}); }
 }
-await fetch('/result',{method:'POST',body:JSON.stringify({results,browser:navigator.userAgent})});
+await fetch('/result',{method:'POST',body:JSON.stringify({results,browser:navigator.userAgent,valueTranscript})});

@@ -9,8 +9,9 @@ export default class Adapter {
      * @param {any} deps.errors
      * @param {any} deps.normalize
      * @param {any} deps.selection
+     * @param {any} deps.evaluate
      */
-    constructor({errors, normalize, selection}) {
+    constructor({errors, normalize, selection, evaluate}) {
         /**
          * @param {any} code
          * @param {any} message
@@ -39,23 +40,6 @@ export default class Adapter {
          */
         const canonical = function (value) {
             return JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item) ? Object.fromEntries(Object.keys(item).sort().map(k => [k, item[k]])) : item);
-        };
-        /**
-         * @param {any} attribute
-         * @param {any} a
-         * @param {any} b
-         * @returns {number}
-         */
-        const compare = function (attribute, a, b) {
-            const type = attribute.type;
-            if (type.name === 'integer' || type.name === 'decimal' || ['identity','ref'].includes(type.name) && type.profile.type === 'int') {
-                const x = BigInt(String(a).replace('.', '')), y = BigInt(String(b).replace('.', ''));
-                return x < y ? -1 : x > y ? 1 : 0;
-            }
-            if (typeof a === 'boolean') return Number(a) - Number(b);
-            const x = Array.from(String(a), c => c.codePointAt(0)), y = Array.from(String(b), c => c.codePointAt(0));
-            for (let i = 0; i < Math.min(x.length, y.length); i++) if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1;
-            return x.length - y.length;
         };
         /**
          * @param {object} deps
@@ -334,43 +318,9 @@ export default class Adapter {
                         });
                     },
                     list: async function (params) {
-                        shape(params,['selection']); const query = selection.create({entity,selection:params.selection});
-                        /**
-                         * @param {any} attr
-                         * @param {any} a
-                         * @param {any} b
-                         * @returns {number}
-                         */
-                        const cmp = (attr,a,b) => compare(entity.attributes.find(item => item.name === attr),a,b);
-                        /**
-                         * @param {any} node
-                         * @param {any} row
-                         * @returns {boolean}
-                         */
-                        const matches = (node,row) => {
-                            const op = node.operator, args = node.args;
-                            if (op === 'and') return args.every(n => matches(n,row));
-                            if (op === 'or') return args.some(n => matches(n,row));
-                            if (op === 'not') return !matches(args[0],row);
-                            const a = row[args[0].name];
-                            if (op === 'isNull') return a === null;
-                            if (op === 'isNotNull') return a !== null;
-                            const b = args[1].value; if (a === null || b === null) return false;
-                            const n = cmp(args[0].name,a,b);
-                            return {eq:n === 0,ne:n !== 0,lt:n < 0,lte:n <= 0,gt:n > 0,gte:n >= 0}[op];
-                        };
-                        return run(path,false,({data}) => {
-                            const rows = data[path].map(entry => entry.record).filter(row => !query.where || matches(query.where,row));
-                            rows.sort((a,b) => {
-                                for (const order of query.orderBy) {
-                                    const x = a[order.attribute], y = b[order.attribute];
-                                    if (x === null || y === null) { if (x !== y) return (x === null ? -1 : 1) * (order.nulls === 'first' ? 1 : -1); }
-                                    else { const n = cmp(order.attribute,x,y); if (n) return n * (order.direction === 'asc' ? 1 : -1); }
-                                }
-                                return 0;
-                            });
-                            return {records:rows.slice(query.offset,query.limit === null ? undefined : query.offset + query.limit)};
-                        });
+                        shape(params,['selection']);
+                        const query=selection.create({entity,selection:params.selection});
+                        return run(path,false,({data})=>evaluate.exec({entity,records:data[path].map(entry=>entry.record),selection:query}));
                     },
                 };
             };
@@ -378,4 +328,4 @@ export default class Adapter {
         };
     }
 }
-export const __deps__ = Object.freeze({default: Object.freeze({errors:'TeqFw_Dem_Repository_Error$',normalize:'TeqFw_Dem_Repository_Normalize$',selection:'TeqFw_Dem_Dto_Query_Selection__Factory$'})});
+export const __deps__ = Object.freeze({default: Object.freeze({errors:'TeqFw_Dem_Repository_Error$',normalize:'TeqFw_Dem_Repository_Normalize$',selection:'TeqFw_Dem_Dto_Query_Selection__Factory$',evaluate:'TeqFw_Dem_Repository_Select$'})});
