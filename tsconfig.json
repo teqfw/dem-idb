@@ -4,9 +4,14 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "target": "ES2022",
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "allowJs": true,
+    "checkJs": true,
+    "strict": false
   },
   "include": [
-    "types.d.ts"
+    "src/**/*.mjs",
+    "types.d.ts",
+    "test/types.ts"
   ]
 }
