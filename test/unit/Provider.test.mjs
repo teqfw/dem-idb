@@ -37,3 +37,11 @@ test('closing a provider releases its backend and prevents reopening', async () 
     assert.equal(closes,1);
     await assert.rejects(provider.get({path:'/a'}),{code:'STORAGE'});
 });
+
+
+test('single and batch calls share the same configured backend',async()=>{
+    let openings=0;
+    const provider=new Provider({configuration:{get:async()=>({})},adapter:{open:async()=>{openings++;return {get:async()=> 'single',execute:async()=> 'batch'};}}});
+    assert.deepEqual(await Promise.all([provider.get({path:'/a'}),provider.execute({operations:[]})]),['single','batch']);
+    assert.equal(openings,1);
+});

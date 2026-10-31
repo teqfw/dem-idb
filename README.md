@@ -44,7 +44,13 @@ Records use DEM normalization: exact integers, decimals and int identities are s
 
 Primary/unique keys are checked in write transactions, allowing repeated nullable unique tuples. Relations are descriptive by default: missing targets are accepted. Set `enforceRelations: true` to check outgoing and incoming relations atomically within this database, with restrictive target updates/deletes. This mode requires that all existing related data is already consistent. It does not implement cascades or cross-database transactions. The adapter passes DEM's current repository conformance suite in this mode; the default mode intentionally provides partial semantic compatibility.
 
-Selections support DEM boolean trees, scalar comparisons, explicit null tests, type-aware exact ordering, Unicode scalar string order, deterministic tie-breakers and offset/limit. Omitted/null limit is unbounded; zero limit is empty. DEM does not support binary/JSON/vector comparisons or ordering, joins, projections, totals or arbitrary predicates. Such data can still be stored and read; listing requires an orderable primary/unique key if the entity includes non-orderable attributes.
+Selections support DEM boolean trees, all-core comparisons, explicit null tests,
+exact ordering, deterministic tie-breakers and offset/limit. Binary compares decoded
+bytes; dense/bit vectors compare numeric elements, sparse vectors conceptual values
+with absent zero; JSON compares canonical serialization by Unicode scalar sequence.
+This is deterministic representation order, not JSON numeric ordering or vector
+similarity. Keyless structured records can be listed. Joins, projections, totals
+and arbitrary predicates remain outside the DEM selection API.
 
 Each operation uses a native transaction and reports a write result after commit. Writes validate data and constraints over full store scans; eligible key reads and single-attribute equality selections use native indexes; selection semantics are supplied by the shared DEM Repository/Select component; native index order is never used as logical numeric or Unicode order. All write transactions include the shared sequence store and are conservatively serialized within this database. This favors correctness and broad types over throughput. Other selection shapes and write validation still scan stores; there is no silent result cap. Multiple calls do not share a transaction. External writes and storage tampering are outside adapter guarantees.
 
@@ -91,3 +97,18 @@ changing attributes disables lookup narrowing for affected old records, preventi
 misses when logical values are projected on read. Index-only schema changes retain
 coverage. New stores start with complete coverage. Sorting and pagination always
 use logical DEM semantics after candidate lookup.
+
+## Atomic command batches and history
+
+backend.execute({operations:[{path,method,params}]}) executes nonempty ordered
+create/read/update/delete/list commands in one native data transaction. It returns
+{results} in command order only after commit; any failure aborts all effects and
+sequence updates. Keys for dependent commands must be explicit. No async callbacks,
+schema commands or generated-result references are supported. The host can map
+`TeqFw_Dem_Api_RepositoryBatch$` to the same `TeqFw_DemIdb_Provider$` instance used
+for RepositoryProvider. Bulk operations use batches of ordinary commands.
+
+backend.getSchemaHistory() returns {schemas:[{version,model}]} with complete applied
+model snapshots. JSON/vector negative zero normalizes to zero; nested sparse inputs
+are detached. Valid Unicode scalar strings including NUL are preserved; lone UTF16
+surrogates fail DEM validation.

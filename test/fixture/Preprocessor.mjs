@@ -1,6 +1,6 @@
 export default function Preprocessor() {
     return function (id) {
-        return id.address === 'TeqFw_Dem_Api_RepositoryProvider'
+        return ['TeqFw_Dem_Api_RepositoryProvider','TeqFw_Dem_Api_RepositoryBatch'].includes(id.address)
             ? {...id,address:'TeqFw_DemIdb_Provider'} : id;
     };
 }

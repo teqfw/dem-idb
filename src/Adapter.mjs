@@ -10,8 +10,9 @@ export default class Adapter {
      * @param {any} deps.normalize
      * @param {any} deps.selection
      * @param {any} deps.evaluate
+     * @param {any} deps.batch
      */
-    constructor({errors, normalize, selection, evaluate}) {
+    constructor({errors, normalize, selection, evaluate, batch}) {
         /**
          * @param {any} code
          * @param {any} message
@@ -218,7 +219,7 @@ export default class Adapter {
                 return new Promise((resolve, reject) => {
                     let tx, result, cause;
                     try {
-                        const scoped = enforceRelations && write ? paths : [path];
+                        const scoped = path===null || enforceRelations && write ? paths : [path];
                         tx = db.transaction(['dem_schema','dem_sequence', ...scoped.map(p => stores[p])], write ? 'readwrite' : 'readonly');
                         /**
                          * @param {any} error
@@ -230,7 +231,7 @@ export default class Adapter {
                         tx.oncomplete = () => resolve(result);
                         const data = Object.create(null);
                         let remaining = scoped.length * 2 + 2;
-                        let counter = '0';
+                        let counter = path===null ? Object.create(null) : '0';
                         let valid = false;
                         /**
                          * @returns {void}
@@ -244,8 +245,12 @@ export default class Adapter {
                         };
                         const meta = tx.objectStore('dem_schema').get(db.version);
 
-                        const seq = tx.objectStore('dem_sequence').get(path);
-                        seq.onsuccess = () => { counter = seq.result ?? '0'; ready(); };
+                        const seq = path===null ? tx.objectStore('dem_sequence').openCursor() : tx.objectStore('dem_sequence').get(path);
+                        seq.onsuccess = () => {
+                            if (path===null && seq.result) {counter[seq.result.key]=seq.result.value;seq.result.continue();return;}
+                            if (path!==null) counter=seq.result ?? '0';
+                            ready();
+                        };
                         /**
                          * @param {any} p
                          * @param {any} metadata
@@ -316,10 +321,10 @@ export default class Adapter {
                                 if (a.type.profile.type === 'int') {
                                     let highest = BigInt(counter);
                                     for (const entry of data[path]) if (BigInt(entry.record[a.name]) > highest) highest = BigInt(entry.record[a.name]);
-                                    if (!Object.hasOwn(value,a.name)) value[a.name] = (highest + 1n).toString();
+                                    if (!Object.hasOwn(value,a.name)) Object.defineProperty(value,a.name,{value:(highest+1n).toString(),enumerable:true,writable:true,configurable:true});
                                     if (BigInt(value[a.name]) > highest) highest = BigInt(value[a.name]);
                                     tx.objectStore('dem_sequence').put(highest.toString(),path);
-                                } else if (!Object.hasOwn(value,a.name)) value[a.name] = globalThis.crypto.randomUUID();
+                                } else if (!Object.hasOwn(value,a.name)) Object.defineProperty(value,a.name,{value:globalThis.crypto.randomUUID(),enumerable:true,writable:true,configurable:true});
                             }
                             const complete = record(value);
                             data[path].push({record:complete});
@@ -356,8 +361,49 @@ export default class Adapter {
                     },
                 };
             };
-            return {createSchema, get, close: async function () { closed = true; if (pending) { try { await pending; } catch {} } database?.close(); }};
+            /** @param {any} params @returns {Promise<any>} */
+            const execute=async function (params) {
+                shape(params,['operations']);
+                const commands=batch.validate({model:snapshot,operations:params.operations});
+                const write=commands.some(command=>['create','update','delete'].includes(command.method));
+                return run(null,write,({tx,data,counter})=>{
+                    const before=Object.fromEntries(paths.map(p=>[p,data[p].slice()]));
+                    const result=batch.plan({model:snapshot,operations:commands,rows:data,enforceRelations,
+                        generate:({path,attribute,rows})=>{
+                            if (attribute.type.profile.type==='uuid') return globalThis.crypto.randomUUID();
+                            let highest=BigInt(counter[path] ?? '0');
+                            for (const entry of rows) if (BigInt(entry.record[attribute.name])>highest) highest=BigInt(entry.record[attribute.name]);
+                            return (highest+1n).toString();
+                        },
+                        created:({path,entity,record})=>{
+                            const a=entity.attributes.find(a=>a.type.name==='identity' && a.type.profile.type==='int');
+                            if (a && BigInt(record[a.name])>BigInt(counter[path] ?? '0')) counter[path]=record[a.name];
+                        },
+                    });
+                    if (write) for (const p of paths) {
+                        const store=tx.objectStore(stores[p]), initial=new Map(before[p].map(row=>[row.key,row.record]));
+                        const keys=new Set(data[p].filter(row=>row.key!==undefined).map(row=>row.key));
+                        for (const key of initial.keys()) if (!keys.has(key)) store.delete(key);
+                        for (const row of data[p]) {
+                            if (row.key===undefined) store.add(row.record);
+                            else if (canonical(initial.get(row.key))!==canonical(row.record)) store.put(row.record,row.key);
+                        }
+                        tx.objectStore('dem_sequence').put(counter[p] ?? '0',p);
+                    }
+                    return result;
+                });
+            };
+            /** @returns {Promise<any>} */
+            const getSchemaHistory=async function () {
+                const db=await ensure();
+                return new Promise((resolve,reject)=>{
+                    const tx=db.transaction('dem_schema','readonly'),request=tx.objectStore('dem_schema').getAll();
+                    tx.oncomplete=()=>resolve({schemas:request.result.map(row=>({version:row.version,model:row.model}))});
+                    tx.onabort=()=>reject(mapped(tx.error));
+                });
+            };
+            return {createSchema, get, execute, getSchemaHistory, close: async function () { closed = true; if (pending) { try { await pending; } catch {} } database?.close(); }};
         };
     }
 }
-export const __deps__ = Object.freeze({default: Object.freeze({errors:'TeqFw_Dem_Repository_Error$',normalize:'TeqFw_Dem_Repository_Normalize$',selection:'TeqFw_Dem_Dto_Query_Selection__Factory$',evaluate:'TeqFw_Dem_Repository_Select$'})});
+export const __deps__ = Object.freeze({default: Object.freeze({errors:'TeqFw_Dem_Repository_Error$',normalize:'TeqFw_Dem_Repository_Normalize$',selection:'TeqFw_Dem_Dto_Query_Selection__Factory$',evaluate:'TeqFw_Dem_Repository_Select$',batch:'TeqFw_Dem_Repository_Batch$'})});

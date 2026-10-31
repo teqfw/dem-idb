@@ -1,6 +1,6 @@
 import Container from '/di/dist/esm.js';
 import {register} from '/dem/conformance/Repository.mjs';
-import {schema as valueSchema,map as valueMap,exercise as valueExercise} from '/dem/conformance/Values.mjs';
+import {schema as valueSchema,map as valueMap,exercise as valueExercise,atomicSchema,exerciseAtomic,extendedSchema,exerciseExtended,exerciseEvolution} from '/dem/conformance/Values.mjs';
 
 const cases = [];
 const test = (name, body) => cases.push({name, body});
@@ -227,6 +227,8 @@ test('browser host substitutes the DEM provider through actual DI preprocessing'
     let provider;
     try {
         provider=await c.get('TeqFw_Dem_Api_RepositoryProvider$');
+        const atomic=await c.get('TeqFw_Dem_Api_RepositoryBatch$');assert.equal(atomic,provider);
+        assert.equal((await atomic.execute({operations:[{path:'/app/item',method:'create',params:{record:{name:'batch DI'}}}]})).results[0].record.name,'batch DI');
         const repo=await provider.get({path:'/app/item'});
         assert.equal((await repo.create({record:{name:'DI'}})).record.name,'DI');
     } finally { await provider?.close(); await env.close(); }
@@ -287,7 +289,7 @@ test('index-only schema changes retain safe native lookup coverage',async()=>{
     } finally {IDBObjectStore.prototype.getAll=originalStore;await next?.close();await env.close();}
 });
 
-let valueTranscript;
+let valueTranscript,atomicTranscript,extendedTranscript,evolutionTranscript;
 test('shared multi-engine value workload',async()=>{
     const {model}=await compiler.exec({schemas:[{packageName:'test',filename:'schema.json',document:valueSchema}],map:{packageName:'test',filename:'map.json',document:valueMap}});
     const name='dem-idb-values-'+ ++sequence;
@@ -296,9 +298,27 @@ test('shared multi-engine value workload',async()=>{
     finally {await provider.close();await remove(name);}
 });
 
+test('shared atomic command workload commits or rolls back all commands',async()=>{
+    const env=await open({schema:atomicSchema,enforceRelations:true});
+    try {atomicTranscript=await exerciseAtomic({provider:env.provider,assert});}
+    finally {await env.close();}
+});
+
+test('shared long-key and arbitrary scalar string workload',async()=>{
+    const env=await open({schema:extendedSchema,enforceRelations:true});
+    try {extendedTranscript=await exerciseExtended({provider:env.provider,assert});}
+    finally {await env.close();}
+});
+
+test('shared structural evolution and history workload',async()=>{
+    const name='dem-idb-evolution-'+ ++sequence;
+    try {evolutionTranscript=await exerciseEvolution({assert,open:async schema=>adapter.open({model:await compile(schema),name,enforceRelations:true})});}
+    finally {await remove(name);}
+});
+
 const results = [];
 for (const {name,body} of cases) {
     try { await body(); results.push({name,passed:true}); }
     catch (error) { results.push({name,passed:false,error:(error.stack ?? String(error)) + (error.diagnostics ? JSON.stringify(error.diagnostics) : '')}); }
 }
-await fetch('/result',{method:'POST',body:JSON.stringify({results,browser:navigator.userAgent,valueTranscript})});
+await fetch('/result',{method:'POST',body:JSON.stringify({results,browser:navigator.userAgent,valueTranscript,atomicTranscript,extendedTranscript,evolutionTranscript})});

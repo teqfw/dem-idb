@@ -1,4 +1,4 @@
-import type {DemModel, DemRepository} from '@teqfw/dem';
+import type {DemModel, DemRepository, DemBatchOperation, DemBatchResult} from '@teqfw/dem';
 
 export interface IdbConfiguration {
     model: DemModel;
@@ -7,8 +7,10 @@ export interface IdbConfiguration {
     enforceRelations?: boolean;
 }
 export interface IdbBackend {
+    execute(params: {operations: DemBatchOperation[]}): Promise<DemBatchResult>;
     createSchema(): Promise<{database: IDBDatabase; stores: Record<string, string>; version: number}>;
     get(params: {path: string}): Promise<DemRepository>;
+    getSchemaHistory(): Promise<{schemas: {version: number; model: DemModel}[]}>;
     close(): Promise<void>;
 }
 export interface IdbAdapter {
