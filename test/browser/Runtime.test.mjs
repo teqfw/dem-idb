@@ -7,6 +7,19 @@ import {join,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {spawn} from 'node:child_process';
 
+// Decode only after collecting bytes: HTTP chunks may split a UTF-8 code point.
+async function readObservation(chunks) {
+    const parts = [];
+    for await (const part of chunks) parts.push(part);
+    return JSON.parse(Buffer.concat(parts).toString('utf8'));
+}
+
+test('browser observation preserves Unicode across HTTP chunk boundaries', async () => {
+    const bytes = Buffer.from(JSON.stringify({text: '🌍'}));
+    const split = bytes.indexOf(Buffer.from('🌍')) + 2;
+    assert.deepEqual(await readObservation([bytes.subarray(0, split), bytes.subarray(split)]), {text: '🌍'});
+});
+
 test('DEM repositories and schema lifecycle on real browser IndexedDB', {timeout:90000}, async () => {
     const testRoot = fileURLToPath(new URL('../../',import.meta.url));
     const root = process.env.IDB_PACKAGE_ROOT ?? testRoot;
@@ -15,8 +28,18 @@ test('DEM repositories and schema lifecycle on real browser IndexedDB', {timeout
     let receive;
     const result = new Promise(resolve => { receive = resolve; });
     const server = createServer(async (req,res) => {
-        if (req.url === '/result') { let body=''; for await (const part of req) body+=part; receive(JSON.parse(body)); res.end('ok'); return; }
+        if (req.url === '/result') { receive(await readObservation(req)); res.end('ok'); return; }
         if (req.url === '/favicon.ico') { res.writeHead(204).end(); return; }
+        if (req.url === '/' && process.env.DEM_BROWSER_SCENARIO === 'application') {
+            res.setHeader('Content-Type', 'text/html');
+            res.end(`<script type="module">
+                try { const {run} = await import('/test/browser/application/Browser.mjs');
+                    const applicationObservation = await run();
+                    await fetch('/result', {method:'POST', body:JSON.stringify({applicationObservation, browser:navigator.userAgent,
+                        results:[{name:'unchanged DEM application via browser composition',passed:true}]})});
+                } catch(error) { await fetch('/result', {method:'POST',body:JSON.stringify({error:error.stack})}); }
+            </script>`); return;
+        }
         if (req.url === '/') { res.setHeader('Content-Type','text/html'); res.end(`<script type="module">import('/test/browser/Suite.mjs').catch(error=>fetch('/result',{method:'POST',body:JSON.stringify({error:error.stack})}));</script>`); return; }
         const url = new URL(req.url,'http://localhost');
         const [base,relative] = url.pathname.startsWith('/test/') ? [testRoot,url.pathname.slice(1)] : url.pathname.startsWith('/dem/') ? [dem,url.pathname.slice(5)] : url.pathname.startsWith('/di/') ? [resolve(di,'..'),url.pathname.slice(4)] : [root,url.pathname.slice(1)];
@@ -37,7 +60,7 @@ test('DEM repositories and schema lifecycle on real browser IndexedDB', {timeout
         assert.equal(observed.error,undefined,observed.error);
         if (process.env.DEM_COMPARE_OUTPUT) await writeFile(process.env.DEM_COMPARE_OUTPUT,JSON.stringify(observed));
         for (const row of observed.results) console.log(`${row.passed ? 'PASS' : 'FAIL'} ${row.name}${row.error ? '\n'+row.error : ''}`);
-        assert.ok(observed.results.length >= 27);
+        assert.ok(observed.results.length >= (process.env.DEM_BROWSER_SCENARIO === 'application' ? 1 : 31));
         assert.deepEqual(observed.results.filter(row=>!row.passed),[]);
         console.log(observed.browser);
     } finally {

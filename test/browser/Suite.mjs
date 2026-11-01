@@ -1,3 +1,4 @@
+import {run as runApplication} from './application/Browser.mjs';
 import Container from '/di/dist/esm.js';
 import {register} from '/dem/conformance/Repository.mjs';
 import {schema as valueSchema,map as valueMap,exercise as valueExercise,atomicSchema,exerciseAtomic,extendedSchema,exerciseExtended,exerciseEvolution} from '/dem/conformance/Values.mjs';
@@ -316,9 +317,15 @@ test('shared structural evolution and history workload',async()=>{
     finally {await remove(name);}
 });
 
+let applicationObservation;
+test('unchanged application module through browser composition', async () => {
+    applicationObservation = await runApplication();
+    assert.equal(applicationObservation.transcript.inputUnchanged, true);
+});
+
 const results = [];
 for (const {name,body} of cases) {
     try { await body(); results.push({name,passed:true}); }
     catch (error) { results.push({name,passed:false,error:(error.stack ?? String(error)) + (error.diagnostics ? JSON.stringify(error.diagnostics) : '')}); }
 }
-await fetch('/result',{method:'POST',body:JSON.stringify({results,browser:navigator.userAgent,valueTranscript,atomicTranscript,extendedTranscript,evolutionTranscript})});
+await fetch('/result',{method:'POST',body:JSON.stringify({results,applicationObservation,browser:navigator.userAgent,valueTranscript,atomicTranscript,extendedTranscript,evolutionTranscript})});

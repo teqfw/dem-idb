@@ -112,3 +112,23 @@ backend.getSchemaHistory() returns {schemas:[{version,model}]} with complete app
 model snapshots. JSON/vector negative zero normalizes to zero; nested sparse inputs
 are detached. Valid Unicode scalar strings including NUL are preserved; lone UTF16
 surrogates fail DEM validation.
+
+## Unchanged application verification
+
+`test/browser/application/Browser.mjs` is a minimal Composition Root for DEM's
+published task-triage Workflow. It compiles the shared Schema source, registers
+namespace/preprocessor mappings, initializes real IDB and resolves Demo_Workflow$.
+All application operations remain in the same DEM module used by the SQLite root.
+The root closes providers/connections and deletes its isolated database in finally.
+
+```sh
+DEM_BROWSER_SCENARIO=application npm run test:browser
+# Optionally retain the envelope with DEM_COMPARE_OUTPUT=/tmp/application-idb.json.
+```
+
+The normal browser suite also executes this workflow. DEM-RDB's test:application
+compares application source hashes, models/fingerprints and complete results; its
+README owns the cross-package setup/commands. Both packages must resolve the current
+DEM application exports. This test uses native ESM delivery and real Chrome, without
+DI test substitutions or repository mocks. Browser setup APIs remain confined to
+this root, while Workflow injects only the portable provider and Selection contracts.
