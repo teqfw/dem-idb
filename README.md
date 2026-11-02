@@ -66,7 +66,7 @@ Browser quota, eviction, user clearing, unexpected closure, upgrade blocking and
 
 ## Development
 
-Install dependencies before running checks. Until `@teqfw/dem` 0.2.x is published, install a local DEM archive or use a workspace. Node.js runs the test harness; Chrome supplies real IndexedDB. Set `CHROME_PATH` if needed.
+Install dependencies before running checks. This release uses `@teqfw/dem` 0.3.x. Node.js runs the test harness; Chrome supplies real IndexedDB. Set `CHROME_PATH` if needed.
 
 ```sh
 npm run verify
