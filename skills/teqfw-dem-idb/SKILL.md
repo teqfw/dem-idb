@@ -10,6 +10,12 @@ Read the package README for the current API, schema-update behavior, capabilitie
 DEM schema descriptors use Format 2. Legacy Format 1 schema descriptors are
 intentionally rejected without a compatibility mode; host maps remain Format 1.
 
+Each application IndexedDB object store uses its exact effective entity path. The
+adapter reserves `/dem/schema` and `/dem/sequence`, and rejects application
+entities in `/dem` before database access. Historical layouts such as `dem:/...`,
+`dem_schema` and `dem_sequence` are deliberately unsupported and rejected without
+modifying the database; the host owns any required migration.
+
 Host composition may map `TeqFw_Dem_Api_RepositoryProvider$` to `TeqFw_DemIdb_Provider$` and the configuration contract to a host component returning adapter options. Business components use DEM repositories. Close the backend/provider at host shutdown and replace providers invalidated by schema upgrades.
 
 Relations are descriptive by default; `enforceRelations:true` enables same-database atomic integrity checks. Eligible key/equality reads use native indexes with coverage-safe fallback; other

@@ -38,6 +38,58 @@ register({test,assert,open});
 const simple = {$format:2,$namespace:'/app/',item:{attributes:[{name:'id',type:{name:'identity'},generation:true},{name:'name',type:{name:'text'}}]}};
 const key = id => ({kind:'primary',values:{id}});
 
+test('fresh database uses effective entity paths and reserved internal stores', async () => {
+    const env=await open({schema:simple});
+    try {
+        const names=Array.from(env.initialized.database.objectStoreNames).sort();
+        assert.deepEqual(names,['/app/item','/dem/schema','/dem/sequence']);
+        assert.deepEqual(env.initialized.stores,{'/app/item':'/app/item'});
+    } finally {await env.close();}
+});
+
+test('reserved application namespace is rejected before IndexedDB access', async () => {
+    let opens=0;
+    const database={open(){opens++;throw new Error('IndexedDB must not be accessed.');}};
+    await assert.rejects(adapter.open({model:{entities:{'/dem/private':{attributes:[]}}},name:'dem-idb-reserved-'+ ++sequence,indexedDB:database}),{code:'INVALID_INPUT'});
+    assert.equal(opens,0);
+});
+
+test('obsolete physical layouts are rejected without changing the database', async () => {
+    const name='dem-idb-legacy-'+ ++sequence;
+    const legacy=await new Promise((resolve,reject)=>{
+        const req=indexedDB.open(name,1);
+        req.onupgradeneeded=()=>{
+            const db=req.result;
+            const history=db.createObjectStore('dem_schema',{keyPath:'version'});
+            history.put({version:1,layout:1,model:{entities:{}}});
+            db.createObjectStore('dem_sequence');
+            const entity=db.createObjectStore('dem:/app/item',{autoIncrement:true});
+            entity.add({id:'kept',name:'historical'});
+        };
+        req.onsuccess=()=>resolve(req.result);
+        req.onerror=()=>reject(req.error);
+    });
+    legacy.close();
+    let provider;
+    try {
+        provider=await adapter.open({model:await compile(simple),name});
+        await assert.rejects(provider.createSchema(),{code:'UNSUPPORTED'});
+        await assert.rejects(provider.get({path:'/app/item'}),{code:'UNSUPPORTED'});
+        const db=await new Promise((resolve,reject)=>{
+            const req=indexedDB.open(name);
+            req.onsuccess=()=>resolve(req.result);
+            req.onerror=()=>reject(req.error);
+        });
+        try {
+            assert.equal(db.version,1);
+            assert.deepEqual(Array.from(db.objectStoreNames).sort(),['dem:/app/item','dem_schema','dem_sequence']);
+            const tx=db.transaction('dem:/app/item','readonly'), rows=tx.objectStore('dem:/app/item').getAll();
+            await new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error);});
+            assert.deepEqual(rows.result,[{id:'kept',name:'historical'}]);
+        } finally {db.close();}
+    } finally {await provider?.close(); await remove(name);}
+});
+
 test('schema history, idempotence, additive defaults and persistence after reopen', async () => {
     const env = await open({schema:simple});
     let second;

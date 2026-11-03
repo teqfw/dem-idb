@@ -61,7 +61,9 @@ Each operation uses a native transaction and reports a write result after commit
 
 ## Schema history and updates
 
-`dem_schema` retains `{version, layout, model}` snapshots; `dem_sequence` retains integer allocation counters. Entity store names are `dem:` followed by the canonical entity path. Entity records use private out-of-line auto-generated IndexedDB keys, independent of logical identities. Logical keys, declared indexes and relations are retained in the model. Valid native key paths get non-unique lookup indexes; native key restrictions do not prevent logical values from being stored or queried.
+Each application object store is named exactly after its effective entity path (for example, `/app/user`). The reserved internal stores `/dem/schema` and `/dem/sequence` retain `{version, layout, model}` snapshots and integer allocation counters. Application models that place entities in `/dem` or its subtree are rejected before IndexedDB access. Entity records use private out-of-line auto-generated IndexedDB keys, independent of logical identities. Logical keys, declared indexes and relations are retained in the model. Valid native key paths get non-unique lookup indexes; native key restrictions do not prevent logical values from being stored or queried.
+
+The adapter deliberately does not support historical physical layouts such as `dem:/...`, `dem_schema` or `dem_sequence`. It rejects such databases before an upgrade and leaves their stores and data unchanged. The host owns any required migration; this package does not rename, copy, convert or delete historical data.
 
 `createSchema()` is idempotent for an unchanged model. A model change increments the database version and atomically updates stores, indexes and its snapshot in a version-change transaction. Removed entity stores and their data are retained. Old connections owned by this adapter close on `versionchange`; their providers must be replaced. Other connections may block upgrades, reported as `STORAGE`; a blocked attempt will not apply later after its promise has rejected. Do not run schema updates concurrently for the same database.
 

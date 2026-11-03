@@ -56,7 +56,25 @@ export default class Adapter {
             const snapshot = JSON.parse(JSON.stringify(model));
             const identity = canonical(snapshot);
             const paths = Object.keys(snapshot.entities);
-            const stores = Object.fromEntries(paths.map(path => [path, 'dem:' + path]));
+            if (paths.some(path => typeof path !== 'string' || !/^\/[a-z0-9_]+(?:\/[a-z0-9_]+)*$/.test(path))) {
+                fail('INVALID_INPUT', 'The model contains a non-canonical effective entity path.');
+            }
+            if (paths.some(path => path === '/dem' || path.startsWith('/dem/'))) {
+                fail('INVALID_INPUT', 'The /dem namespace is reserved for adapter state.');
+            }
+            const stores = Object.fromEntries(paths.map(path => [path, path]));
+            const schemaStore = '/dem/schema';
+            const sequenceStore = '/dem/sequence';
+            /**
+             * @param {any} db
+             * @returns {void}
+             */
+            const rejectLegacyLayout = function (db) {
+                const names = Array.from(db.objectStoreNames);
+                if (names.some(name => name.startsWith('dem:/')) || names.includes('dem_schema') || names.includes('dem_sequence')) {
+                    fail('UNSUPPORTED', 'The database uses an obsolete DEM-IDB physical layout. The host must migrate its data explicitly.');
+                }
+            };
             for (const entity of Object.values(snapshot.entities)) {
                 for (const a of entity.attributes) if (a.generation && a.type.name !== 'identity') fail('UNSUPPORTED', 'Generation is supported only for identity attributes.');
             }
@@ -79,8 +97,9 @@ export default class Adapter {
                         const tx = request.transaction, db = request.result;
                         try {
                             if (rejected || !initialize) fail('UNSUPPORTED', 'Initialize the database explicitly with createSchema().');
-                            if (!db.objectStoreNames.contains('dem_schema')) db.createObjectStore('dem_schema', {keyPath:'version'});
-                            if (!db.objectStoreNames.contains('dem_sequence')) db.createObjectStore('dem_sequence');
+                            rejectLegacyLayout(db);
+                            if (!db.objectStoreNames.contains(schemaStore)) db.createObjectStore(schemaStore, {keyPath:'version'});
+                            if (!db.objectStoreNames.contains(sequenceStore)) db.createObjectStore(sequenceStore);
                             const existed=new Set(Array.from(db.objectStoreNames));
                             for (const path of paths) {
                                 const store = db.objectStoreNames.contains(stores[path]) ? tx.objectStore(stores[path]) : db.createObjectStore(stores[path], {autoIncrement:true});
@@ -97,12 +116,12 @@ export default class Adapter {
                                     if (attrs.every(attr => /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(attr))) store.createIndex(key, attrs, {unique:false});
                                 }
                             }
-                            const history=tx.objectStore('dem_schema');
+                            const history=tx.objectStore(schemaStore);
                             const previous=history.get(event.oldVersion);
                             previous.onsuccess=()=>{
                                 const before=previous.result;
-                                const nativeLookup=Object.fromEntries(paths.map(path=>[path,!existed.has(stores[path]) || Boolean(before?.layout===1 && (before.nativeLookup?.[path] ?? event.oldVersion===1) && canonical(before.model.entities[path]?.attributes)===canonical(snapshot.entities[path].attributes))]));
-                                history.put({version:db.version,layout:1,model:snapshot,nativeLookup});
+                                const nativeLookup=Object.fromEntries(paths.map(path=>[path,!existed.has(stores[path]) || Boolean(before?.layout===2 && (before.nativeLookup?.[path] ?? event.oldVersion===1) && canonical(before.model.entities[path]?.attributes)===canonical(snapshot.entities[path].attributes))]));
+                                history.put({version:db.version,layout:2,model:snapshot,nativeLookup});
                             };
                         } catch (error) { cause = mapped(error); tx.abort(); }
                     };
@@ -120,11 +139,12 @@ export default class Adapter {
              */
             const compatible = function (db) {
                 return new Promise((resolve, reject) => {
-                    if (!db.objectStoreNames.contains('dem_schema') || !db.objectStoreNames.contains('dem_sequence') || paths.some(p => !db.objectStoreNames.contains(stores[p]))) { resolve(false); return; }
-                    const tx = db.transaction(['dem_schema', ...paths.map(p => stores[p])], 'readonly');
-                    const request = tx.objectStore('dem_schema').get(db.version);
+                    rejectLegacyLayout(db);
+                    if (!db.objectStoreNames.contains(schemaStore) || !db.objectStoreNames.contains(sequenceStore) || paths.some(p => !db.objectStoreNames.contains(stores[p]))) { resolve(false); return; }
+                    const tx = db.transaction([schemaStore, ...paths.map(p => stores[p])], 'readonly');
+                    const request = tx.objectStore(schemaStore).get(db.version);
                     const layout = paths.every(p => { const store = tx.objectStore(stores[p]); return store.keyPath === null && store.autoIncrement; });
-                    tx.oncomplete = () => resolve(layout && request.result?.layout === 1 && canonical(request.result.model) === identity);
+                    tx.oncomplete = () => resolve(layout && request.result?.layout === 2 && canonical(request.result.model) === identity);
                     tx.onabort = () => reject(mapped(tx.error));
                 });
             };
@@ -220,7 +240,7 @@ export default class Adapter {
                     let tx, result, cause;
                     try {
                         const scoped = path===null || enforceRelations && write ? paths : [path];
-                        tx = db.transaction(['dem_schema','dem_sequence', ...scoped.map(p => stores[p])], write ? 'readwrite' : 'readonly');
+                        tx = db.transaction([schemaStore,sequenceStore, ...scoped.map(p => stores[p])], write ? 'readwrite' : 'readonly');
                         /**
                          * @param {any} error
                          * @returns {void}
@@ -243,9 +263,9 @@ export default class Adapter {
                                 result = execute({tx, data, counter});
                             } catch (error) { abort(error); }
                         };
-                        const meta = tx.objectStore('dem_schema').get(db.version);
+                        const meta = tx.objectStore(schemaStore).get(db.version);
 
-                        const seq = path===null ? tx.objectStore('dem_sequence').openCursor() : tx.objectStore('dem_sequence').get(path);
+                        const seq = path===null ? tx.objectStore(sequenceStore).openCursor() : tx.objectStore(sequenceStore).get(path);
                         seq.onsuccess = () => {
                             if (path===null && seq.result) {counter[seq.result.key]=seq.result.value;seq.result.continue();return;}
                             if (path!==null) counter=seq.result ?? '0';
@@ -282,7 +302,7 @@ export default class Adapter {
                         };
                         meta.onsuccess=()=>{
                             try {
-                                valid=meta.result?.layout===1 && canonical(meta.result.model)===identity;
+                                valid=meta.result?.layout===2 && canonical(meta.result.model)===identity;
                                 for (const p of scoped) load(p,meta.result);
                                 ready();
                             } catch(error) {abort(error);}
@@ -323,7 +343,7 @@ export default class Adapter {
                                     for (const entry of data[path]) if (BigInt(entry.record[a.name]) > highest) highest = BigInt(entry.record[a.name]);
                                     if (!Object.hasOwn(value,a.name)) Object.defineProperty(value,a.name,{value:(highest+1n).toString(),enumerable:true,writable:true,configurable:true});
                                     if (BigInt(value[a.name]) > highest) highest = BigInt(value[a.name]);
-                                    tx.objectStore('dem_sequence').put(highest.toString(),path);
+                                    tx.objectStore(sequenceStore).put(highest.toString(),path);
                                 } else if (!Object.hasOwn(value,a.name)) Object.defineProperty(value,a.name,{value:globalThis.crypto.randomUUID(),enumerable:true,writable:true,configurable:true});
                             }
                             const complete = record(value);
@@ -388,7 +408,7 @@ export default class Adapter {
                             if (row.key===undefined) store.add(row.record);
                             else if (canonical(initial.get(row.key))!==canonical(row.record)) store.put(row.record,row.key);
                         }
-                        tx.objectStore('dem_sequence').put(counter[p] ?? '0',p);
+                        tx.objectStore(sequenceStore).put(counter[p] ?? '0',p);
                     }
                     return result;
                 });
@@ -397,7 +417,7 @@ export default class Adapter {
             const getSchemaHistory=async function () {
                 const db=await ensure();
                 return new Promise((resolve,reject)=>{
-                    const tx=db.transaction('dem_schema','readonly'),request=tx.objectStore('dem_schema').getAll();
+                    const tx=db.transaction(schemaStore,'readonly'),request=tx.objectStore(schemaStore).getAll();
                     tx.oncomplete=()=>resolve({schemas:request.result.map(row=>({version:row.version,model:row.model}))});
                     tx.onabort=()=>reject(mapped(tx.error));
                 });
