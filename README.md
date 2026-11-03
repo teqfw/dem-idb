@@ -2,6 +2,10 @@
 
 IndexedDB persistence for [TeqFW DEM](https://github.com/teqfw/dem). Compile the same JSON declarations with DEM and select this adapter in a browser or DEM-RDB in Node.js. Application code uses DEM's repository methods and logical values in both environments.
 
+DEM schema descriptors use Format 2. Format 1 schema descriptors are rejected by
+design, with no legacy compatibility mode; this is an intentional breaking
+contract. Host maps are separate and continue to use Format 1.
+
 The adapter creates one object store per effective entity, native non-unique lookup indexes where possible, and versioned schema snapshots. It supports create/read/update/delete/list, primary and named unique keys (including composite keys), keyless entities, defaults, integer and UUID identity generation, and all DEM core logical value types. No additional production library or IndexedDB wrapper is required.
 
 ## Initialize a model
@@ -14,8 +18,9 @@ const {model} = await compiler.exec({schemas: [{
     packageName: '@example/app',
     filename: 'dem-schema.json',
     document: {
-        $format: 1,
-        '/app/user': {attributes: [
+        $format: 2,
+        $namespace: '/app/',
+        user: {attributes: [
             {name: 'id', type: {name: 'identity'}, generation: true},
             {name: 'name', type: {name: 'text'}},
         ]},
