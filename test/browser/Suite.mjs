@@ -54,6 +54,15 @@ test('reserved application namespace is rejected before IndexedDB access', async
     assert.equal(opens,0);
 });
 
+test('noncanonical effective entity paths are rejected before IndexedDB access', async () => {
+    let operations=0;
+    const database={open(){operations++;throw new Error('IndexedDB must not be accessed.');}};
+    for (const path of ['/1item','/app/my_item','/app//item','/app/../item','/app/item/']) {
+        await assert.rejects(adapter.open({model:{entities:{[path]:{attributes:[]}}},name:'dem-idb-invalid-path-'+ ++sequence,indexedDB:database}),{code:'INVALID_INPUT'});
+    }
+    assert.equal(operations,0);
+});
+
 test('obsolete physical layouts are rejected without changing the database', async () => {
     const name='dem-idb-legacy-'+ ++sequence;
     const legacy=await new Promise((resolve,reject)=>{

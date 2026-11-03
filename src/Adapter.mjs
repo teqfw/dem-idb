@@ -43,6 +43,13 @@ export default class Adapter {
             return JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item) ? Object.fromEntries(Object.keys(item).sort().map(k => [k, item[k]])) : item);
         };
         /**
+         * @param {unknown} path
+         * @returns {boolean}
+         */
+        const isCanonicalPath = function (path) {
+            return typeof path === 'string' && /^\/[a-z][a-z0-9]*(?:\/[a-z][a-z0-9]*)*$/.test(path);
+        };
+        /**
          * @param {object} deps
          * @param {any} deps.model
          * @param {string} deps.name
@@ -56,7 +63,7 @@ export default class Adapter {
             const snapshot = JSON.parse(JSON.stringify(model));
             const identity = canonical(snapshot);
             const paths = Object.keys(snapshot.entities);
-            if (paths.some(path => typeof path !== 'string' || !/^\/[a-z0-9_]+(?:\/[a-z0-9_]+)*$/.test(path))) {
+            if (paths.some(path => !isCanonicalPath(path))) {
                 fail('INVALID_INPUT', 'The model contains a non-canonical effective entity path.');
             }
             if (paths.some(path => path === '/dem' || path.startsWith('/dem/'))) {
@@ -317,7 +324,7 @@ export default class Adapter {
             const get = async function (params) {
                 shape(params,['path']);
                 const path = params.path;
-                if (typeof path !== 'string' || !/^\/[a-z0-9_]+(?:\/[a-z0-9_]+)*$/.test(path)) fail('INVALID_INPUT','Expected a canonical entity path.');
+                if (!isCanonicalPath(path)) fail('INVALID_INPUT','Expected a canonical entity path.');
                 const entity = snapshot.entities[path];
                 if (!entity) fail('NOT_FOUND','Entity not found.');
                 await ensure();
