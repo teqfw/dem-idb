@@ -35,7 +35,7 @@ const open = async ({schema, enforceRelations = true}) => {
     return {provider,model,name,initialized,selection,close:async () => { await provider.close(); await remove(name); }};
 };
 register({test,assert,open});
-const simple = {$format:1,'/app/item':{attributes:[{name:'id',type:{name:'identity'},generation:true},{name:'name',type:{name:'text'}}]}};
+const simple = {$format:2,$namespace:'/app/',item:{attributes:[{name:'id',type:{name:'identity'},generation:true},{name:'name',type:{name:'text'}}]}};
 const key = id => ({kind:'primary',values:{id}});
 
 test('schema history, idempotence, additive defaults and persistence after reopen', async () => {
@@ -47,13 +47,12 @@ test('schema history, idempotence, additive defaults and persistence after reope
         assert.equal((await env.provider.createSchema()).version,1);
         await env.provider.close();
         const updated = structuredClone(simple);
-        updated['/app/item'].attributes.push({name:'note',type:{name:'text'},default:'new'});
+        updated.item.attributes.push({name:'note',type:{name:'text'},default:'new'});
         second = await adapter.open({model:await compile(updated),name:env.name});
         const result = await second.createSchema();
         assert.equal(result.version,2);
-        const tx = result.database.transaction('dem_schema','readonly');
-        const history = await new Promise(resolve => { const req = tx.objectStore('dem_schema').getAll(); req.onsuccess = () => resolve(req.result); });
-        assert.equal(history.length,2);
+        const history = await second.getSchemaHistory();
+        assert.equal(history.schemas.length,2);
         assert.equal((await (await second.get({path:'/app/item'})).read({key:key('1')})).record.note,'new');
         await second.close();
         second = await adapter.open({model:await compile(updated),name:env.name});
@@ -62,7 +61,7 @@ test('schema history, idempotence, additive defaults and persistence after reope
 });
 
 test('all logical value types round-trip and decimals and integers compare exactly', async () => {
-    const schema = {$format:1,'/app/data':{attributes:[
+    const schema = {$format:2,$namespace:'/app/',data:{attributes:[
         {name:'id',type:{name:'identity'},generation:true},
         {name:'wide',type:{name:'integer',params:{bits:64}}},
         {name:'amount',type:{name:'decimal',params:{precision:24,scale:4}}},
@@ -105,7 +104,7 @@ test('concurrent providers allocate distinct ids; sequence survives deletion', a
 });
 
 test('relations are descriptive by default, optional enforcement is available', async () => {
-    const schema = {$format:1,'/app/parent':{attributes:[{name:'id',type:{name:'identity'}}]},'/app/child':{attributes:[{name:'owner',type:{name:'ref'}}],relations:{owner:{attributes:['owner'],target:{path:'/app/parent',attributes:['id']}}}}};
+    const schema = {$format:2,$namespace:'/app/',parent:{attributes:[{name:'id',type:{name:'identity'}}]},child:{attributes:[{name:'owner',type:{name:'ref'}}],relations:{owner:{attributes:['owner'],target:{path:'/app/parent',attributes:['id']}}}}};
     const env = await open({schema,enforceRelations:false});
     try { assert.deepEqual(await (await env.provider.get({path:'/app/child'})).create({record:{owner:'999'}}),{record:{owner:'999'}}); }
     finally { await env.close(); }
@@ -117,14 +116,14 @@ test('missing database is not implicitly initialized and incompatible model is r
     try { await assert.rejects(backend.get({path:'/app/item'}),{code:'UNSUPPORTED'}); }
     finally { await backend.close(); await remove(name); }
     const env = await open({schema:simple});
-    const changed = structuredClone(simple); changed['/app/item'].attributes.push({name:'added',type:{name:'text'},nullable:true});
+    const changed = structuredClone(simple); changed.item.attributes.push({name:'added',type:{name:'text'},nullable:true});
     const other = await adapter.open({model:await compile(changed),name:env.name});
     try { await assert.rejects(other.get({path:'/app/item'}),{code:'UNSUPPORTED'}); }
     finally { await other.close(); await env.close(); }
 });
 
 test('Unicode scalar ordering, null placement and zero limit', async () => {
-    const env = await open({schema:{$format:1,'/app/item':{attributes:[{name:'id',type:{name:'identity'},generation:true},{name:'name',type:{name:'text'},nullable:true}]}}});
+    const env = await open({schema:{$format:2,$namespace:'/app/',item:{attributes:[{name:'id',type:{name:'identity'},generation:true},{name:'name',type:{name:'text'},nullable:true}]}}});
     try {
         const repo = await env.provider.get({path:'/app/item'});
         for (const name of ['\u{10000}','\ue000','a','A',null]) await repo.create({record:{name}});
@@ -137,7 +136,7 @@ test('Unicode scalar ordering, null placement and zero limit', async () => {
 
 test('UUID identities and references use the same logical values', async () => {
     const name = 'dem-idb-uuid-' + ++sequence;
-    const schema = {$format:1,'/app/item':{attributes:[{name:'id',type:{name:'identity'},generation:true}]}};
+    const schema = {$format:2,$namespace:'/app/',item:{attributes:[{name:'id',type:{name:'identity'},generation:true}]}};
     const {model} = await compiler.exec({schemas:[{packageName:'test',filename:'schema.json',document:schema}],map:{packageName:'test',filename:'map.json',document:{$format:1,identityProfiles:{'/app/item':{id:{type:'uuid'}}}}}});
     const provider = await adapter.open({model,name});
     try {
@@ -149,7 +148,7 @@ test('UUID identities and references use the same logical values', async () => {
 });
 
 test('failed unique writes roll back generated sequence changes', async () => {
-    const schema = structuredClone(simple); schema['/app/item'].uniqueKeys = {name:['name']};
+    const schema = structuredClone(simple); schema.item.uniqueKeys = {name:['name']};
     const env = await open({schema});
     try {
         const repo = await env.provider.get({path:'/app/item'});
@@ -159,43 +158,40 @@ test('failed unique writes roll back generated sequence changes', async () => {
     } finally { await env.close(); }
 });
 
-test('schema updates invalidate old providers and retain removed stores', async () => {
+test('schema updates invalidate old providers and preserve current entity data', async () => {
     const env = await open({schema:simple}); let newer;
     try {
         const repo = await env.provider.get({path:'/app/item'});
-        await repo.create({record:{name:'retained'}});
-        const schema = {$format:1,'/app/other':{attributes:[{name:'label',type:{name:'text'}}]}};
+        await repo.create({record:{name:'current'}});
+        const schema = structuredClone(simple);
+        schema.other={attributes:[{name:'label',type:{name:'text'}}]};
         newer = await adapter.open({model:await compile(schema),name:env.name});
-        const initialized = await newer.createSchema();
-        assert.ok(initialized.database.objectStoreNames.contains('dem:/app/item'));
+        await newer.createSchema();
         await assert.rejects(repo.list({selection:{}}),{code:'STORAGE'});
-        const tx = initialized.database.transaction('dem:/app/item');
-        const old = await new Promise(resolve => { const req = tx.objectStore('dem:/app/item').getAll(); req.onsuccess = () => resolve(req.result); });
-        assert.equal(old[0].name,'retained');
+        assert.deepEqual(await (await newer.get({path:'/app/item'})).list({selection:{}}),{records:[{id:'1',name:'current'}]});
+        assert.deepEqual(await (await newer.get({path:'/app/other'})).list({selection:{}}),{records:[]});
     } finally { await newer?.close(); await env.close(); }
 });
 
-test('incompatible native store aborts upgrade without changing history or data', async () => {
-    const name = 'dem-idb-bad-layout-' + ++sequence;
-    const raw = await new Promise((resolve,reject) => {
-        const req = indexedDB.open(name,1);
-        req.onupgradeneeded = () => req.result.createObjectStore('dem:/app/item',{keyPath:'id'}).add({id:1,name:'retained'});
-        req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error);
-    });
-    raw.close();
-    const backend = await adapter.open({model:await compile(simple),name});
+test('provider rejects a different current model without modifying stored data', async () => {
+    const env=await open({schema:simple}); let backend, reopened;
     try {
-        await assert.rejects(backend.createSchema(),{code:'UNSUPPORTED'});
-        const db = await new Promise(resolve => { const req=indexedDB.open(name); req.onsuccess=()=>resolve(req.result); });
-        assert.equal(db.version,1); assert.equal(db.objectStoreNames.contains('dem_schema'),false); db.close();
-    } finally { await backend.close(); await remove(name); }
+        await (await env.provider.get({path:'/app/item'})).create({record:{name:'current'}});
+        await env.provider.close();
+        const changed=structuredClone(simple); changed.item.attributes.push({name:'new_field',type:{name:'text'},nullable:true});
+        backend=await adapter.open({model:await compile(changed),name:env.name});
+        await assert.rejects(backend.get({path:'/app/item'}),{code:'UNSUPPORTED'});
+        await backend.close(); backend=undefined;
+        reopened=await adapter.open({model:env.model,name:env.name});
+        assert.deepEqual(await (await reopened.get({path:'/app/item'})).list({selection:{}}),{records:[{id:'1',name:'current'}]});
+    } finally { await backend?.close(); await reopened?.close(); await env.close(); }
 });
 
 test('blocked upgrades reject and do not apply after the blocker closes', async () => {
     const env = await open({schema:simple}); let other;
     const blocker = await new Promise(resolve => { const req=indexedDB.open(env.name); req.onsuccess=()=>resolve(req.result); });
     try {
-        const schema=structuredClone(simple); schema['/app/item'].attributes.push({name:'new_field',type:{name:'text'},nullable:true});
+        const schema=structuredClone(simple); schema.item.attributes.push({name:'new_field',type:{name:'text'},nullable:true});
         other=await adapter.open({model:await compile(schema),name:env.name});
         await assert.rejects(other.createSchema(),{code:'STORAGE'});
         blocker.close();
@@ -206,7 +202,7 @@ test('blocked upgrades reject and do not apply after the blocker closes', async 
 });
 
 test('self relations and nullable unique keys preserve repository semantics', async () => {
-    const schema = {$format:1,'/app/node':{attributes:[{name:'id',type:{name:'identity'}},{name:'parent',type:{name:'ref'},nullable:true}],uniqueKeys:{parent:['parent']},relations:{parent:{attributes:['parent'],target:{path:'/app/node',attributes:['id']}}}}};
+    const schema = {$format:2,$namespace:'/app/',node:{attributes:[{name:'id',type:{name:'identity'}},{name:'parent',type:{name:'ref'},nullable:true}],uniqueKeys:{parent:['parent']},relations:{parent:{attributes:['parent'],target:{path:'/app/node',attributes:['id']}}}}};
     const env=await open({schema});
     try {
         const repo=await env.provider.get({path:'/app/node'});
@@ -237,8 +233,8 @@ test('browser host substitutes the DEM provider through actual DI preprocessing'
 
 test('native key and equality lookup avoid full scans, with non-keyable JSON/boolean fallback',async()=>{
     const schema=structuredClone(simple);
-    schema['/app/item'].attributes.push({name:'flag',type:{name:'boolean'}},{name:'payload',type:{name:'json'}});
-    schema['/app/item'].uniqueKeys={name:['name'],flag:['flag'],payload:['payload']};
+    schema.item.attributes.push({name:'flag',type:{name:'boolean'}},{name:'payload',type:{name:'json'}});
+    schema.item.uniqueKeys={name:['name'],flag:['flag'],payload:['payload']};
     const env=await open({schema});
     const originalStore=IDBObjectStore.prototype.getAll,originalIndex=IDBIndex.prototype.getAll;
     let scans=0,indexReads=0;
@@ -246,7 +242,7 @@ test('native key and equality lookup avoid full scans, with non-keyable JSON/boo
         const repo=await env.provider.get({path:'/app/item'});
         const a=(await repo.create({record:{name:'Ada',flag:true,payload:{n:1}}})).record;
         await repo.create({record:{name:'B',flag:false,payload:{n:2}}});
-        IDBObjectStore.prototype.getAll=function (...args) {if(this.name==='dem:/app/item') scans++;return originalStore.apply(this,args);};
+        IDBObjectStore.prototype.getAll=function (...args) {if(this.name===env.initialized.stores['/app/item']) scans++;return originalStore.apply(this,args);};
         IDBIndex.prototype.getAll=function (...args) {indexReads++;return originalIndex.apply(this,args);};
         assert.deepEqual(await repo.read({key:key(a.id)}),{record:a});
         assert.deepEqual(await repo.read({key:{kind:'unique',name:'name',values:{name:'Ada'}}}),{record:a});
@@ -264,8 +260,8 @@ test('lookup planning falls back when additive defaults are absent in old raw re
     try {
         await (await env.provider.get({path:'/app/item'})).create({record:{name:'old'}});
         const schema=structuredClone(simple);
-        schema['/app/item'].attributes.push({name:'category',type:{name:'text'},default:'default'});
-        schema['/app/item'].indexes={category:{attributes:['category']}};
+        schema.item.attributes.push({name:'category',type:{name:'text'},default:'default'});
+        schema.item.indexes={category:{attributes:['category']}};
         next=await adapter.open({model:await compile(schema),name:env.name});
         await next.createSchema();
         const repo=await next.get({path:'/app/item'});
@@ -281,10 +277,10 @@ test('index-only schema changes retain safe native lookup coverage',async()=>{
     let scans=0;
     try {
         await (await env.provider.get({path:'/app/item'})).create({record:{name:'old'}});
-        const schema=structuredClone(simple);schema['/app/item'].indexes={name:{attributes:['name']}};
+        const schema=structuredClone(simple);schema.item.indexes={name:{attributes:['name']}};
         next=await adapter.open({model:await compile(schema),name:env.name});await next.createSchema();
         const repo=await next.get({path:'/app/item'});
-        IDBObjectStore.prototype.getAll=function (...args) {if(this.name==='dem:/app/item') scans++;return originalStore.apply(this,args);};
+        IDBObjectStore.prototype.getAll=function (...args) {if(this.name===env.initialized.stores['/app/item']) scans++;return originalStore.apply(this,args);};
         const where={kind:'call',operator:'eq',args:[{kind:'attr',name:'name'},{kind:'value',value:'old'}]};
         assert.equal((await repo.list({selection:{where}})).records.length,1);assert.equal(scans,0);
     } finally {IDBObjectStore.prototype.getAll=originalStore;await next?.close();await env.close();}
