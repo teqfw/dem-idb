@@ -30,6 +30,7 @@ export async function run() {
     ], preprocessors: ['Host_Browser__Preprocessor$']});
     let backend, provider;
     try {
+        (await container.get('TeqFw_Dem_Registry$')).finalize();
         const compiler = await container.get('TeqFw_Dem_Compile$');
         const {model, fingerprint} = await compiler.exec({schemas: [source]});
         const configuration = await container.get('Host_Browser__Configuration$');

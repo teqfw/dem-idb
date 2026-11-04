@@ -22,6 +22,7 @@ const assert = {
 const container = new Container();
 container.addNamespaceRoot('TeqFw_Dem_', location.origin + '/dem/src', '.mjs');
 container.addNamespaceRoot('TeqFw_DemIdb_', location.origin + '/src', '.mjs');
+(await container.get('TeqFw_Dem_Registry$')).finalize();
 const compiler = await container.get('TeqFw_Dem_Compile$');
 const adapter = await container.get('TeqFw_DemIdb_Adapter$');
 const selection = await container.get('TeqFw_Dem_Dto_Query_Selection__Factory$');
@@ -249,14 +250,20 @@ test('provider rejects a different current model without modifying stored data',
 });
 
 test('blocked upgrades reject and do not apply after the blocker closes', async () => {
-    const env = await open({schema:simple}); let other;
+    const env = await open({schema:simple}); let other, upgradeFinished;
+    const trackedIndexedDB = {open(name, version) {
+        const request = version === undefined ? indexedDB.open(name) : indexedDB.open(name, version);
+        if (version !== undefined) upgradeFinished = new Promise(resolve => request.addEventListener('error', resolve, {once:true}));
+        return request;
+    }};
     const blocker = await new Promise(resolve => { const req=indexedDB.open(env.name); req.onsuccess=()=>resolve(req.result); });
     try {
         const schema=structuredClone(simple); schema.item.attributes.push({name:'new_field',type:{name:'text'},nullable:true});
-        other=await adapter.open({model:await compile(schema),name:env.name});
+        other=await adapter.open({model:await compile(schema),name:env.name,indexedDB:trackedIndexedDB});
         await assert.rejects(other.createSchema(),{code:'STORAGE'});
         blocker.close();
-        // A following open is queued after the rejected upgrade; its version must remain unchanged.
+        // Wait for the blocked upgrade request to abort before opening the database again.
+        await upgradeFinished;
         const db=await new Promise(resolve=>{const req=indexedDB.open(env.name);req.onsuccess=()=>resolve(req.result);});
         assert.equal(db.version,1); db.close();
     } finally { blocker.close(); await other?.close(); await env.close(); }

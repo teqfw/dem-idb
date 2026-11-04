@@ -19,7 +19,7 @@
     "test:browser": "node --test test/browser/Runtime.test.mjs"
   },
   "dependencies": {
-    "@teqfw/dem": "^0.3.0"
+    "@teqfw/dem": "github:teqfw/dem"
   },
   "peerDependencies": {
     "@teqfw/di": "^2.11.0"
