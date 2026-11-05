@@ -215,7 +215,11 @@ test('failed unique writes roll back generated sequence changes', async () => {
     try {
         const repo = await env.provider.get({path:'/app/item'});
         await repo.create({record:{name:'same'}});
-        await assert.rejects(repo.create({record:{id:'1000',name:'same'}}),{code:'CONFLICT'});
+        await assert.rejects(env.provider.execute({operations:[
+            {path:'/app/item',method:'create',params:{record:{name:'next'}}},
+            {path:'/app/item',method:'create',params:{record:{name:'next'}}},
+        ]}),{code:'CONFLICT'});
+        assert.deepEqual((await repo.list({selection:{}})).records,[{id:'1',name:'same'}]);
         assert.equal((await repo.create({record:{name:'next'}})).record.id,'2');
     } finally { await env.close(); }
 });
@@ -321,6 +325,46 @@ test('native key and equality lookup avoid full scans, with non-keyable JSON/boo
         assert.equal((await repo.read({key:{kind:'unique',name:'payload',values:{payload:{n:2}}}})).record.name,'B');
         assert.equal(scans,2);
     } finally {IDBObjectStore.prototype.getAll=originalStore;IDBIndex.prototype.getAll=originalIndex;await env.close();}
+});
+
+test('extension Equality lookups scan while core lookups retain native index narrowing',async()=>{
+    const c=new Container();
+    c.addNamespaceRoot('TeqFw_Dem_',location.origin+'/dem/src','.mjs');
+    c.addNamespaceRoot('TeqFw_DemIdb_',location.origin+'/src','.mjs');
+    const registry=await c.get('TeqFw_Dem_Registry$');
+    registry.register([{
+        name:'example.CaseFolded',parameters:{},normalizeParams:params=>params,
+        valueDomain:'String values.',preservation:'String values.',valueHandling:'Normalize and copy strings.',equality:'Case-insensitive string equality.',
+    }]);
+    registry.finalize();
+    const model=(await (await c.get('TeqFw_Dem_Compile$')).exec({schemas:[{packageName:'test',filename:'extension.json',document:{$format:2,$namespace:'/extension/',item:{
+        attributes:[{name:'id',type:{name:'text'}},{name:'folded',type:{name:'example.CaseFolded'}},{name:'label',type:{name:'text'}}],
+        primaryKey:['id'],uniqueKeys:{by_folded:['folded'],by_label:['label']},
+    }}}]})).model;
+    const handler={name:'example.CaseFolded',normalize:value=>value,copy:value=>value,equals:(left,right)=>left.toLowerCase()===right.toLowerCase()};
+    const runtime=(await c.get('TeqFw_Dem_Repository_Runtime$')).bind({model,registry,handlers:[handler]});
+    const name='dem-idb-extension-equality-'+ ++sequence;
+    const provider=await (await c.get('TeqFw_DemIdb_Adapter$')).open({model,name,runtime});
+    let scans=0,indexReads=0;
+    const originalStore=IDBObjectStore.prototype.getAll,originalIndex=IDBIndex.prototype.getAll;
+    try {
+        await provider.createSchema();
+        const repo=await provider.get({path:'/extension/item'});
+        await repo.create({record:{id:'1',folded:'ABC',label:'core'}});
+        IDBObjectStore.prototype.getAll=function (...args) {if(this.name==='/extension/item') scans++;return originalStore.apply(this,args);};
+        IDBIndex.prototype.getAll=function (...args) {indexReads++;return originalIndex.apply(this,args);};
+        assert.equal((await repo.read({key:{kind:'unique',name:'by_folded',values:{folded:'abc'}}})).record.id,'1');
+        const foldedWhere={kind:'call',operator:'eq',args:[{kind:'attr',name:'folded'},{kind:'value',value:'abc'}]};
+        assert.equal((await repo.list({selection:{where:foldedWhere}})).records[0].id,'1');
+        assert.equal(scans,2);assert.equal(indexReads,0);
+        assert.equal((await repo.read({key:{kind:'unique',name:'by_label',values:{label:'core'}}})).record.id,'1');
+        const labelWhere={kind:'call',operator:'eq',args:[{kind:'attr',name:'label'},{kind:'value',value:'core'}]};
+        assert.equal((await repo.list({selection:{where:labelWhere}})).records[0].id,'1');
+        assert.equal(scans,2);assert.equal(indexReads,2);
+    } finally {
+        IDBObjectStore.prototype.getAll=originalStore;IDBIndex.prototype.getAll=originalIndex;
+        await provider.close();await remove(name);
+    }
 });
 
 test('lookup planning falls back when additive defaults are absent in old raw records',async()=>{
@@ -435,9 +479,10 @@ test('native CryptoKey survives IndexedDB and key-only replacement', async () =>
         } finally { globalThis.structuredClone=nativeClone; }
         await assert.rejects(backend.execute({operations:[
             {path:'/crypto/item',method:'create',params:{record:{id:'rolled-back',label:'rollback',key:key1}}},
-            {path:'/crypto/item',method:'create',params:{record:{id:'invalid',label:'invalid',key:{}}}},
-        ]}),{code:'INVALID_INPUT'});
+            {path:'/crypto/item',method:'create',params:{record:{id:'duplicate',label:'rollback',key:key1}}},
+        ]}),{code:'CONFLICT'});
         assert.equal((await repo3.read({key:{kind:'primary',values:{id:'rolled-back'}}})).record,null);
+        assert.equal((await repo3.read({key:{kind:'primary',values:{id:'duplicate'}}})).record,null);
     } finally { await backend.close(); await remove(name); }
 });
 

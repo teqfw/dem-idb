@@ -229,35 +229,6 @@ export default class Adapter {
                 catch { fail('STORAGE', 'Stored record is incompatible with the selected model; migrate its values explicitly.'); }
             };
             /**
-             * @param {any} row
-             * @param {any} members
-             * @returns {string}
-             */
-            const tuple = function (row, members) { return canonical(members.map(k => row[k])); };
-            /**
-             * @param {any} data
-             * @param {any} path
-             * @returns {void}
-             */
-            const validate = function (data, path) {
-                const entity = snapshot.entities[path];
-                for (const members of [entity.primaryKey, ...Object.values(entity.uniqueKeys)].filter(Boolean)) {
-                    const seen = new Set();
-                    for (const entry of data[path]) {
-                        if (members.some(k => entry.record[k] === null)) continue;
-                        const value = tuple(entry.record, members);
-                        if (seen.has(value)) fail('CONFLICT', 'Logical key must be unique.');
-                        seen.add(value);
-                    }
-                }
-                if (enforceRelations) for (const p of paths) for (const relation of Object.values(snapshot.entities[p].relations)) {
-                    for (const {record} of data[p]) {
-                        if (relation.attributes.some(k => record[k] === null)) continue;
-                        if (!data[relation.target.path].some(target => tuple(target.record,relation.target.attributes) === tuple(record,relation.attributes))) fail('RELATION', 'Relation target is missing or still referenced.');
-                    }
-                }
-            };
-            /**
              * @param {any} path
              * @param {any} write
              * @param {any} execute
@@ -315,7 +286,11 @@ export default class Adapter {
                             };
                             const store=tx.objectStore(stores[p]);
                             let source=store,range;
-                            if (!write && lookup && (metadata?.nativeLookup?.[p] ?? db.version===1)) {
+                            const coreLookup=lookup?.members.every(member=>{
+                                const attribute=snapshot.entities[p].attributes.find(item=>item.name===member);
+                                return attribute && !attribute.type.name.includes('.');
+                            });
+                            if (!write && coreLookup && (metadata?.nativeLookup?.[p] ?? db.version===1)) {
                                 const indexName=Array.from(store.indexNames).find(name=>{
                                     const keyPath=store.index(name).keyPath;
                                     return canonical(Array.isArray(keyPath) ? keyPath : [keyPath])===canonical(lookup.members);
