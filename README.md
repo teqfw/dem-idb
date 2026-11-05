@@ -39,7 +39,7 @@ await users.delete({key});
 await backend.close();
 ```
 
-`open({model, name, indexedDB?, enforceRelations?})` configures a provider without creating a database. `indexedDB` defaults to the browser global. `get({path})` opens an existing compatible database; initialization is explicit. Methods return the DEM result envelopes and shared `DemRepositoryError` codes. `createSchema()` returns `{database, stores, version}` for host administration; direct writes through that raw connection bypass adapter checks.
+`open({model, name, indexedDB?, enforceRelations?, runtime?})` configures a provider without creating a database. `indexedDB` defaults to the browser global. `get({path})` opens an existing compatible database; initialization is explicit. Methods return the DEM result envelopes and shared `DemRepositoryError` codes. `createSchema()` returns `{database, stores, version}` for host administration; direct writes through that raw connection bypass adapter checks.
 
 For DI substitution, map `TeqFw_Dem_Api_RepositoryProvider$` to `TeqFw_DemIdb_Provider$` using a host preprocessor. Map `TeqFw_DemIdb_Api_Configuration$` to a host component whose asynchronous `get()` returns the adapter options. Initialize the schema separately through the adapter first. The provider opens lazily, caches its backend, and exposes `close()` for host shutdown. The default configuration fails with `UNSUPPORTED`.
 
@@ -57,7 +57,7 @@ This is deterministic representation order, not JSON numeric ordering or vector
 similarity. Keyless structured records can be listed. Joins, projections, totals
 and arbitrary predicates remain outside the DEM selection API.
 
-Each operation uses a native transaction and reports a write result after commit. Writes validate data and constraints over full store scans; eligible key reads and single-attribute equality selections use native indexes; selection semantics are supplied by the shared DEM Repository/Select component; native index order is never used as logical numeric or Unicode order. All write transactions include the shared sequence store and are conservatively serialized within this database. This favors correctness and broad types over throughput. Other selection shapes and write validation still scan stores; there is no silent result cap. Multiple calls do not share a transaction. External writes and storage tampering are outside adapter guarantees.
+Each operation uses a native transaction and reports a write result after commit. Writes validate data and constraints over full store scans; eligible Core key reads and single-attribute equality selections use native indexes when safe; extension-type lookups scan; selection semantics are supplied by the shared DEM Repository/Select component; native index order is never used as logical numeric or Unicode order. All write transactions include the shared sequence store and are conservatively serialized within this database. This favors correctness and broad types over throughput. Other selection shapes and write validation still scan stores; there is no silent result cap. Multiple calls do not share a transaction. External writes and storage tampering are outside adapter guarantees.
 
 ## Schema history and updates
 
@@ -141,32 +141,66 @@ DI test substitutions or repository mocks. Browser setup APIs remain confined to
 this root, while Workflow injects only the portable provider and Selection contracts.
 
 
-## Planned: native CryptoKey and model-bound Runtime
+## Native CryptoKey and model-bound Runtime
 
-The following is an accepted target, **not implemented yet**. DEM-IDB will expose
-`TeqFw_DemIdb_Type_CryptoKey_Provider$` and
-`TeqFw_DemIdb_Type_CryptoKey_Handler$` for host composition:
+The browser host composes the CryptoKey type with DEM before opening the adapter.
+With a configured TeqFW `container` and browser namespace roots (see initialization
+above), the following example creates and reads a non-extractable HMAC key:
 
 ```js
 const registry = await container.get('TeqFw_Dem_Registry$');
 const provider = await container.get('TeqFw_DemIdb_Type_CryptoKey_Provider$');
 registry.register(provider.getDefinitions());
 registry.finalize();
-const {model} = await compiler.exec({schemas}); // CryptoKey attribute: type: {name: 'idb.CryptoKey'}
+
+const compiler = await container.get('TeqFw_Dem_Compile$');
+const {model} = await compiler.exec({schemas: [{
+    packageName: '@example/app', filename: 'keys.json',
+    document: {$format: 2, $namespace: '/app/', credential: {
+        attributes: [
+            {name: 'id', type: {name: 'text'}},
+            {name: 'key', type: {name: 'idb.CryptoKey'}},
+        ],
+        primaryKey: ['id'],
+    }},
+}]});
 const handler = await container.get('TeqFw_DemIdb_Type_CryptoKey_Handler$');
 const runtime = (await container.get('TeqFw_Dem_Repository_Runtime$'))
     .bind({model, registry, handlers: [handler]});
-const backend = await adapter.open({model, name: 'example-app', runtime});
+const adapter = await container.get('TeqFw_DemIdb_Adapter$');
+const backend = await adapter.open({model, name: 'example-keys', runtime});
+try {
+    await backend.createSchema();
+    const credentials = await backend.get({path: '/app/credential'});
+    const key = await crypto.subtle.generateKey(
+        {name: 'HMAC', hash: 'SHA-256'}, false, ['sign', 'verify']);
+    await credentials.create({record: {id: 'signing-key', key}});
+    const {record} = await credentials.read({
+        key: {kind: 'primary', values: {id: 'signing-key'}},
+    });
+    // record.key is a native CryptoKey usable with Web Crypto.
+} finally {
+    await backend.close();
+}
 ```
 
-Provider configuration will pass the same options for repository and batch access.
-Core-only models need no runtime option. A mismatched runtime is invalid; extension
-models require a matching binding. The host owns the binding and closes the backend.
-The type accepts native CryptoKey values and uses structured clone without exporting
-key material. Algorithms, usages and extractability are application policy. Keys
-cannot be indexed, compared, used in relations or as primary/unique keys. Nullable
-attributes follow ordinary DEM rules. The browser must support structured cloning and
-IndexedDB storage of CryptoKeys. Invalid input reports `INVALID_INPUT`, missing
-capabilities `UNSUPPORTED`, and clone/storage failures `STORAGE`. Atomic writes and
-repository semantics remain in force. This target awaits implementation and real
-Chromium verification.
+Provider configuration accepts the same `runtime` option for repository and Batch
+access. Core-only models need no Runtime binding. Extension models require a binding
+whose model has the same canonical identity; a mismatch is `INVALID_INPUT`. The host
+owns the binding, configures its handlers and closes the backend. Handler-defined
+Equality governs extension values in Repository and Batch operations. Extension-type
+lookups scan rather than narrow through native indexes; Core lookups use an index only
+when its key and schema coverage are safe.
+
+`idb.CryptoKey` accepts genuine native keys and copies and stores them through
+structured clone, without exporting key material. It has no Equality, Ordering,
+Literal, Default or Generation, and cannot participate in primary or unique keys,
+indexes, relations or value comparisons. Nullable attributes follow DEM rules.
+Applications own algorithm, usage and extractability policy. The browser must expose
+CryptoKey, structuredClone and IndexedDB capable of storing the given key. Invalid
+input is `INVALID_INPUT`, missing capabilities or Runtime are `UNSUPPORTED`, and
+clone and storage failures are `STORAGE`. Atomic batches publish results after commit
+and roll back effects and sequence updates on failure. Native values survive omitted
+updates, including updates that replace only a CryptoKey. Real-browser verification
+is limited to the Chrome scope described above; other browsers and workers remain
+unverified.
