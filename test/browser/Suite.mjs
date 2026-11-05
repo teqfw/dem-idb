@@ -381,6 +381,47 @@ test('shared structural evolution and history workload',async()=>{
     finally {await remove(name);}
 });
 
+test('native CryptoKey survives IndexedDB and key-only replacement', async () => {
+    const c=new Container();
+    c.addNamespaceRoot('TeqFw_Dem_',location.origin+'/dem/src','.mjs');
+    c.addNamespaceRoot('TeqFw_DemIdb_',location.origin+'/src','.mjs');
+    const registry=await c.get('TeqFw_Dem_Registry$');
+    registry.register([...(await (await c.get('TeqFw_DemIdb_Type_CryptoKey_Provider$')).getDefinitions())]);
+    registry.finalize();
+    const model=(await (await c.get('TeqFw_Dem_Compile$')).exec({schemas:[{packageName:'crypto-test',filename:'schema.json',document:{$format:2,$namespace:'/crypto/',item:{attributes:[{name:'id',type:{name:'text'}},{name:'label',type:{name:'text'}},{name:'key',type:{name:'idb.CryptoKey'}}],primaryKey:['id']}}}]})).model;
+    const handler=await c.get('TeqFw_DemIdb_Type_CryptoKey_Handler$');
+    const runtime=(await c.get('TeqFw_Dem_Repository_Runtime$')).bind({model,registry,handlers:[handler]});
+    const name='dem-idb-cryptokey-'+ ++sequence;
+    const key1=await crypto.subtle.generateKey({name:'HMAC',hash:'SHA-256'},false,['sign','verify']);
+    const key2=await crypto.subtle.generateKey({name:'HMAC',hash:'SHA-256'},false,['sign','verify']);
+    const payload=new TextEncoder().encode('native key persistence');
+    const signature=async key=>crypto.subtle.sign('HMAC',key,payload);
+    const check=async (key,sig)=>crypto.subtle.verify('HMAC',key,sig,payload);
+    let backend=await adapter.open({model,name,runtime});
+    try {
+        await backend.createSchema();
+        const repo=await backend.get({path:'/crypto/item'});
+        await repo.create({record:{id:'one',label:'before',key:key1}});
+        await backend.close();
+        backend=await adapter.open({model,name,runtime});
+        let row=(await (await backend.get({path:'/crypto/item'})).read({key:{kind:'primary',values:{id:'one'}}})).record;
+        assert.equal(row.key.extractable,false); assert.equal(row.key.algorithm.name,'HMAC'); assert.equal(row.key.type,'secret');
+        assert.ok(row.key.usages.includes('sign')); assert.ok(await check(row.key,await signature(key1)));
+        const repo2=await backend.get({path:'/crypto/item'});
+        await repo2.update({key:{kind:'primary',values:{id:'one'}},changes:{label:'after'}});
+        row=(await repo2.read({key:{kind:'primary',values:{id:'one'}}})).record;
+        assert.ok(await check(row.key,await signature(key1)));
+        await repo2.update({key:{kind:'primary',values:{id:'one'}},changes:{key:key2}});
+        await backend.close();
+        backend=await adapter.open({model,name,runtime});
+        row=(await (await backend.get({path:'/crypto/item'})).read({key:{kind:'primary',values:{id:'one'}}})).record;
+        assert.ok(await check(row.key,await signature(key2)));
+        assert.equal(await check(row.key,await signature(key1)),false);
+        await assert.rejects((await backend.get({path:'/crypto/item'})).create({record:{id:'bad',label:'bad',key:{type:'secret',algorithm:{name:'HMAC'},usages:['sign'],extractable:false}}}),{code:'INVALID_INPUT'});
+        await assert.rejects(adapter.open({model,name:'missing-runtime-'+sequence}),{code:'UNSUPPORTED'});
+    } finally { await backend.close(); await remove(name); }
+});
+
 let applicationObservation;
 test('unchanged application module through browser composition', async () => {
     applicationObservation = await runApplication();

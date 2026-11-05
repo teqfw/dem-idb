@@ -5,6 +5,8 @@ export interface IdbConfiguration {
     name: string;
     indexedDB?: IDBFactory;
     enforceRelations?: boolean;
+    /** DEM Runtime binding for models containing extension types. */
+    runtime?: {model: DemModel; normalize: unknown; selection: unknown; select: unknown; batch: unknown};
 }
 export interface IdbBackend {
     execute(params: {operations: DemBatchOperation[]}): Promise<DemBatchResult>;

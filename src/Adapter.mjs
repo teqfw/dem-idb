@@ -55,14 +55,37 @@ export default class Adapter {
          * @param {string} deps.name
          * @param {any} [deps.indexedDB]
          * @param {boolean} [deps.enforceRelations]
+         * @param {any} [deps.runtime]
          * @returns {Promise<any>}
          */
-        this.open = async function ({model, name, indexedDB = globalThis.indexedDB, enforceRelations = false}) {
-            if (!model?.entities || typeof name !== 'string' || !name || !indexedDB) fail('INVALID_INPUT', 'A compiled DEM model, database name and IndexedDB factory are required.');
+        this.open = async function ({model, name, indexedDB = globalThis.indexedDB, enforceRelations = false, runtime}) {
+            if (!model?.entities || typeof name !== 'string' || !name) fail('INVALID_INPUT', 'A compiled DEM model and database name are required.');
             if (typeof enforceRelations !== 'boolean') fail('INVALID_INPUT', 'enforceRelations must be boolean.');
             const snapshot = JSON.parse(JSON.stringify(model));
             const identity = canonical(snapshot);
+            const hasCryptoKey=Object.values(snapshot.entities).some(entity=>entity.attributes.some(a=>a.type.name==='idb.CryptoKey'));
+            if (!indexedDB && hasCryptoKey) fail('UNSUPPORTED','IndexedDB is required for CryptoKey persistence.');
+            if (!indexedDB) fail('INVALID_INPUT','An IndexedDB factory is required.');
+            const hasExtensions=Object.values(snapshot.entities).some(entity=>entity.attributes.some(a=>a.type.name.includes('.')));
+            if (hasExtensions && !runtime) fail('UNSUPPORTED','A model-scoped DEM Runtime is required for extension types.');
+            if (runtime && canonical(runtime.model)!==identity) fail('INVALID_INPUT','The DEM Runtime is bound to a different Effective DEM.');
+            const norm=runtime?.normalize ?? normalize;
+            const selectFactory=runtime?.selection ?? selection;
+            const selectExec=runtime?.select ?? evaluate;
+            const batchExec=runtime?.batch ?? batch;
+            if (hasCryptoKey) {
+                if (typeof globalThis.CryptoKey!=='function' || typeof globalThis.structuredClone!=='function' || !indexedDB) fail('UNSUPPORTED','CryptoKey, structuredClone and IndexedDB are required.');
+            }
             const paths = Object.keys(snapshot.entities);
+            for (const [entityPath, entity] of Object.entries(snapshot.entities)) {
+                const keys=[...(entity.primaryKey ?? []),...Object.values(entity.uniqueKeys ?? {}).flat()];
+                const relationMembers=[...Object.values(entity.relations ?? {}).flatMap(relation=>relation.attributes),
+                    ...Object.entries(snapshot.entities).flatMap(([sourcePath,source])=>Object.values(source.relations ?? {}).filter(relation=>relation.target.path===entityPath).flatMap(relation=>relation.target.attributes))];
+                for (const attribute of entity.attributes) if (attribute.type.name==='idb.CryptoKey'
+                    && (keys.includes(attribute.name) || relationMembers.includes(attribute.name)
+                        || Object.values(entity.indexes ?? {}).some(index=>index.attributes.includes(attribute.name))))
+                    fail('INVALID_INPUT','CryptoKey attributes cannot be keys, indexes or relations.');
+            }
             if (paths.some(path => !isCanonicalPath(path))) {
                 fail('INVALID_INPUT', 'The model contains a non-canonical effective entity path.');
             }
@@ -202,7 +225,7 @@ export default class Adapter {
             const logical = function (entity, stored) {
                 // Additive defaults/nulls can be read without rewriting old data; no implicit type conversions.
                 const input = Object.fromEntries(entity.attributes.filter(a => Object.hasOwn(stored,a.name)).map(a => [a.name,stored[a.name]]));
-                try { return normalize.record({entity, record:normalize.record({entity, record:input, mode:'create'}), mode:'complete'}); }
+                try { return norm.record({entity, record:norm.record({entity, record:input, mode:'create'}), mode:'complete'}); }
                 catch { fail('STORAGE', 'Stored record is incompatible with the selected model; migrate its values explicitly.'); }
             };
             /**
@@ -328,74 +351,22 @@ export default class Adapter {
                 const entity = snapshot.entities[path];
                 if (!entity) fail('NOT_FOUND','Entity not found.');
                 await ensure();
-                /**
-                 * @param {any} rows
-                 * @param {any} key
-                 * @returns {number}
-                 */
-                const find = (rows,key) => rows.findIndex(entry => Object.keys(key.values).every(k => canonical(entry.record[k]) === canonical(key.values[k])));
-                /**
-                 * @param {any} value
-                 * @returns {any}
-                 */
-                const record = value => normalize.record({entity,record:value,mode:'complete'});
                 return {
-                    create: async function (params) {
-                        shape(params,['record']);
-                        const value = normalize.record({entity,record:params.record,mode:'create'});
-                        return run(path,true,({tx,data,counter}) => {
-                            for (const a of entity.attributes.filter(a => a.type.name === 'identity')) {
-                                if (a.type.profile.type === 'int') {
-                                    let highest = BigInt(counter);
-                                    for (const entry of data[path]) if (BigInt(entry.record[a.name]) > highest) highest = BigInt(entry.record[a.name]);
-                                    if (!Object.hasOwn(value,a.name)) Object.defineProperty(value,a.name,{value:(highest+1n).toString(),enumerable:true,writable:true,configurable:true});
-                                    if (BigInt(value[a.name]) > highest) highest = BigInt(value[a.name]);
-                                    tx.objectStore(sequenceStore).put(highest.toString(),path);
-                                } else if (!Object.hasOwn(value,a.name)) Object.defineProperty(value,a.name,{value:globalThis.crypto.randomUUID(),enumerable:true,writable:true,configurable:true});
-                            }
-                            const complete = record(value);
-                            data[path].push({record:complete});
-                            validate(data,path);
-                            tx.objectStore(stores[path]).add(complete);
-                            return {record:complete};
-                        });
-                    },
-                    read: async function (params) {
-                        shape(params,['key']); const key = normalize.key({entity,key:params.key});
-                        return run(path,false,({data}) => { const i = find(data[path],key); return {record:i < 0 ? null : data[path][i].record}; },{members:Object.keys(key.values),values:Object.values(key.values)});
-                    },
-                    update: async function (params) {
-                        shape(params,['key','changes']); const key = normalize.key({entity,key:params.key});
-                        const changes = normalize.record({entity,record:params.changes,mode:'update'});
-                        return run(path,true,({tx,data}) => {
-                            const i = find(data[path],key); if (i < 0) return {record:null};
-                            const next = record({...data[path][i].record,...changes}); data[path][i].record = next;
-                            validate(data,path); tx.objectStore(stores[path]).put(next,data[path][i].key); return {record:next};
-                        });
-                    },
-                    delete: async function (params) {
-                        shape(params,['key']); const key = normalize.key({entity,key:params.key});
-                        return run(path,true,({tx,data}) => {
-                            const i = find(data[path],key); if (i < 0) return {deleted:false};
-                            const [entry] = data[path].splice(i,1); validate(data,path); tx.objectStore(stores[path]).delete(entry.key); return {deleted:true};
-                        });
-                    },
-                    list: async function (params) {
-                        shape(params,['selection']);
-                        const query=selection.create({entity,selection:params.selection});
-                        const lookup=query.where?.operator==='eq' ? {members:[query.where.args[0].name],values:[query.where.args[1].value]} : undefined;
-                        return run(path,false,({data})=>evaluate.exec({entity,records:data[path].map(entry=>entry.record),selection:query}),lookup);
-                    },
+                    create: async params => (await execute({operations:[{path,method:'create',params}]})).results[0],
+                    read: async params => (await execute({operations:[{path,method:'read',params}]})).results[0],
+                    update: async params => (await execute({operations:[{path,method:'update',params}]})).results[0],
+                    delete: async params => (await execute({operations:[{path,method:'delete',params}]})).results[0],
+                    list: async params => (await execute({operations:[{path,method:'list',params}]})).results[0],
                 };
             };
             /** @param {any} params @returns {Promise<any>} */
             const execute=async function (params) {
                 shape(params,['operations']);
-                const commands=batch.validate({model:snapshot,operations:params.operations});
+                const commands=batchExec.validate({model:snapshot,operations:params.operations});
                 const write=commands.some(command=>['create','update','delete'].includes(command.method));
                 return run(null,write,({tx,data,counter})=>{
-                    const before=Object.fromEntries(paths.map(p=>[p,data[p].slice()]));
-                    const result=batch.plan({model:snapshot,operations:commands,rows:data,enforceRelations,
+                    const before=Object.fromEntries(paths.map(p=>[p,data[p].map(row=>({key:row.key,row}))]));
+                    const result=batchExec.plan({model:snapshot,operations:commands,rows:data,enforceRelations,
                         generate:({path,attribute,rows})=>{
                             if (attribute.type.profile.type==='uuid') return globalThis.crypto.randomUUID();
                             let highest=BigInt(counter[path] ?? '0');
@@ -408,12 +379,12 @@ export default class Adapter {
                         },
                     });
                     if (write) for (const p of paths) {
-                        const store=tx.objectStore(stores[p]), initial=new Map(before[p].map(row=>[row.key,row.record]));
+                        const store=tx.objectStore(stores[p]), initial=new Map(before[p].map(item=>[item.key,item.row]));
                         const keys=new Set(data[p].filter(row=>row.key!==undefined).map(row=>row.key));
                         for (const key of initial.keys()) if (!keys.has(key)) store.delete(key);
                         for (const row of data[p]) {
                             if (row.key===undefined) store.add(row.record);
-                            else if (canonical(initial.get(row.key))!==canonical(row.record)) store.put(row.record,row.key);
+                            else if (initial.get(row.key)!==row) store.put(row.record,row.key);
                         }
                         tx.objectStore(sequenceStore).put(counter[p] ?? '0',p);
                     }
