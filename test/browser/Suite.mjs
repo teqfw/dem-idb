@@ -388,7 +388,7 @@ test('native CryptoKey survives IndexedDB and key-only replacement', async () =>
     const registry=await c.get('TeqFw_Dem_Registry$');
     registry.register([...(await (await c.get('TeqFw_DemIdb_Type_CryptoKey_Provider$')).getDefinitions())]);
     registry.finalize();
-    const model=(await (await c.get('TeqFw_Dem_Compile$')).exec({schemas:[{packageName:'crypto-test',filename:'schema.json',document:{$format:2,$namespace:'/crypto/',item:{attributes:[{name:'id',type:{name:'text'}},{name:'label',type:{name:'text'}},{name:'key',type:{name:'idb.CryptoKey'}}],primaryKey:['id']}}}]})).model;
+    const model=(await (await c.get('TeqFw_Dem_Compile$')).exec({schemas:[{packageName:'crypto-test',filename:'schema.json',document:{$format:2,$namespace:'/crypto/',item:{attributes:[{name:'id',type:{name:'text'}},{name:'label',type:{name:'text'}},{name:'key',type:{name:'idb.CryptoKey'}},{name:'optional',type:{name:'idb.CryptoKey'},nullable:true}],primaryKey:['id'],uniqueKeys:{by_label:['label']}}}}]})).model;
     const handler=await c.get('TeqFw_DemIdb_Type_CryptoKey_Handler$');
     const runtime=(await c.get('TeqFw_Dem_Repository_Runtime$')).bind({model,registry,handlers:[handler]});
     const name='dem-idb-cryptokey-'+ ++sequence;
@@ -402,6 +402,9 @@ test('native CryptoKey survives IndexedDB and key-only replacement', async () =>
         await backend.createSchema();
         const repo=await backend.get({path:'/crypto/item'});
         await repo.create({record:{id:'one',label:'before',key:key1}});
+        await repo.create({record:{id:'nullable',label:'nullable',key:key1,optional:null}});
+        assert.equal((await repo.read({key:{kind:'primary',values:{id:'nullable'}}})).record.optional,null);
+        await assert.rejects(repo.create({record:{id:'duplicate',label:'before',key:key1}}),{code:'CONFLICT'});
         await backend.close();
         backend=await adapter.open({model,name,runtime});
         let row=(await (await backend.get({path:'/crypto/item'})).read({key:{kind:'primary',values:{id:'one'}}})).record;
@@ -414,11 +417,22 @@ test('native CryptoKey survives IndexedDB and key-only replacement', async () =>
         await repo2.update({key:{kind:'primary',values:{id:'one'}},changes:{key:key2}});
         await backend.close();
         backend=await adapter.open({model,name,runtime});
-        row=(await (await backend.get({path:'/crypto/item'})).read({key:{kind:'primary',values:{id:'one'}}})).record;
+        const repo3=await backend.get({path:'/crypto/item'});
+        row=(await repo3.read({key:{kind:'primary',values:{id:'one'}}})).record;
         assert.ok(await check(row.key,await signature(key2)));
         assert.equal(await check(row.key,await signature(key1)),false);
         await assert.rejects((await backend.get({path:'/crypto/item'})).create({record:{id:'bad',label:'bad',key:{type:'secret',algorithm:{name:'HMAC'},usages:['sign'],extractable:false}}}),{code:'INVALID_INPUT'});
         await assert.rejects(adapter.open({model,name:'missing-runtime-'+sequence}),{code:'UNSUPPORTED'});
+        const otherModel=(await (await c.get('TeqFw_Dem_Compile$')).exec({schemas:[{packageName:'crypto-test',filename:'other.json',document:{$format:2,$namespace:'/other/',item:{attributes:[{name:'id',type:{name:'text'}},{name:'key',type:{name:'idb.CryptoKey'}}],primaryKey:['id']}}}]})).model;
+        const otherRuntime=(await c.get('TeqFw_Dem_Repository_Runtime$')).bind({model:otherModel,registry,handlers:[handler]});
+        await assert.rejects(adapter.open({model,name:'mismatched-'+sequence,runtime:otherRuntime}),{code:'INVALID_INPUT'});
+        await assert.rejects(repo3.list({selection:{where:{kind:'call',operator:'eq',args:[{kind:'attr',name:'key'},{kind:'value',type:{name:'idb.CryptoKey'},value:key1}]}}}),{code:'INVALID_INPUT'});
+        await assert.rejects(repo3.list({selection:{orderBy:[{attribute:'key',direction:'asc',nulls:'last'}]}}),{code:'INVALID_INPUT'});
+        await assert.rejects(backend.execute({operations:[
+            {path:'/crypto/item',method:'create',params:{record:{id:'rolled-back',label:'rollback',key:key1}}},
+            {path:'/crypto/item',method:'create',params:{record:{id:'invalid',label:'invalid',key:{}}}},
+        ]}),{code:'INVALID_INPUT'});
+        assert.equal((await repo3.read({key:{kind:'primary',values:{id:'rolled-back'}}})).record,null);
     } finally { await backend.close(); await remove(name); }
 });
 
