@@ -428,6 +428,11 @@ test('native CryptoKey survives IndexedDB and key-only replacement', async () =>
         await assert.rejects(adapter.open({model,name:'mismatched-'+sequence,runtime:otherRuntime}),{code:'INVALID_INPUT'});
         await assert.rejects(repo3.list({selection:{where:{kind:'call',operator:'eq',args:[{kind:'attr',name:'key'},{kind:'value',type:{name:'idb.CryptoKey'},value:key1}]}}}),{code:'INVALID_INPUT'});
         await assert.rejects(repo3.list({selection:{orderBy:[{attribute:'key',direction:'asc',nulls:'last'}]}}),{code:'INVALID_INPUT'});
+        const nativeClone=globalThis.structuredClone;
+        try {
+            globalThis.structuredClone=value=>{if (value instanceof CryptoKey) throw new DOMException('clone failure','DataCloneError'); return nativeClone(value);};
+            await assert.rejects(repo3.create({record:{id:'clone-failure',label:'clone-failure',key:key1}}),{code:'STORAGE'});
+        } finally { globalThis.structuredClone=nativeClone; }
         await assert.rejects(backend.execute({operations:[
             {path:'/crypto/item',method:'create',params:{record:{id:'rolled-back',label:'rollback',key:key1}}},
             {path:'/crypto/item',method:'create',params:{record:{id:'invalid',label:'invalid',key:{}}}},
