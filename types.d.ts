@@ -22,11 +22,11 @@ export interface IdbConfigurationProvider {
     get(): Promise<IdbConfiguration>;
 }
 declare global {
-    type TeqFw_DemIdb_Adapter = import('./src/Adapter.mjs').default;
-    type TeqFw_DemIdb_Adapter__Class = typeof import('./src/Adapter.mjs').default;
-    type TeqFw_DemIdb_Api_Configuration = import('./src/Api/Configuration.mjs').default;
-    type TeqFw_DemIdb_Api_Configuration__Class = typeof import('./src/Api/Configuration.mjs').default;
-    type TeqFw_DemIdb_Provider = import('./src/Provider.mjs').default;
-    type TeqFw_DemIdb_Provider__Class = typeof import('./src/Provider.mjs').default;
+    type TeqFw_Dem_IDb_Adapter = import('./src/Adapter.mjs').default;
+    type TeqFw_Dem_IDb_Adapter__Class = typeof import('./src/Adapter.mjs').default;
+    type TeqFw_Dem_IDb_Api_Configuration = import('./src/Api/Configuration.mjs').default;
+    type TeqFw_Dem_IDb_Api_Configuration__Class = typeof import('./src/Api/Configuration.mjs').default;
+    type TeqFw_Dem_IDb_Provider = import('./src/Provider.mjs').default;
+    type TeqFw_Dem_IDb_Provider__Class = typeof import('./src/Provider.mjs').default;
 }
 export {};

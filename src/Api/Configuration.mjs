@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * @namespace TeqFw_DemIdb_Api_Configuration
+ * @namespace TeqFw_Dem_IDb_Api_Configuration
  * @description Host-supplied IndexedDB adapter configuration.
  */
 export default class Configuration {

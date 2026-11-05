@@ -1,7 +1,12 @@
 // @ts-check
-/** @namespace TeqFw_DemIdb_Type_CryptoKey_Provider */
+/**
+ * @namespace TeqFw_Dem_IDb_Type_CryptoKey_Provider
+ * @description Supplies the DEM type definition for native IndexedDB CryptoKey values.
+ */
 export default class Provider {
+    /** No dependencies are required. */
     constructor() {
+        /** @returns {Array<Record<string,any>>} */
         this.getDefinitions = function () { return [{
             name:'idb.CryptoKey', parameters:{},
             normalizeParams:(params) => { if (Object.keys(params).length) throw new TypeError('idb.CryptoKey has no parameters.'); return {}; },

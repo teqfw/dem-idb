@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * @namespace TeqFw_DemIdb_Adapter
+ * @namespace TeqFw_Dem_IDb_Adapter
  * @description IndexedDB model projection, schema history and DEM repository execution.
  */
 export default class Adapter {

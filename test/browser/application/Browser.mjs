@@ -13,8 +13,8 @@ export class Configuration {
 /** Select the provider implementation and host configuration through DI. */
 export function Preprocessor() {
     return id => id.address === 'TeqFw_Dem_Api_RepositoryProvider'
-        ? {...id, address: 'TeqFw_DemIdb_Provider'}
-        : id.address === 'TeqFw_DemIdb_Api_Configuration'
+        ? {...id, address: 'TeqFw_Dem_IDb_Provider'}
+        : id.address === 'TeqFw_Dem_IDb_Api_Configuration'
             ? {...id, address: 'Host_Browser', exportName: 'Configuration'} : id;
 }
 
@@ -24,7 +24,7 @@ export async function run() {
     const applicationUrl = location.origin + '/dem/conformance/application/Workflow.mjs';
     const container = new Container({namespaces: [
         {prefix: 'TeqFw_Dem_', target: location.origin + '/dem/src', defaultExt: '.mjs'},
-        {prefix: 'TeqFw_DemIdb_', target: location.origin + '/src', defaultExt: '.mjs'},
+        {prefix: 'TeqFw_Dem_IDb_', target: location.origin + '/src', defaultExt: '.mjs'},
         {prefix: 'Demo_', target: location.origin + '/dem/conformance/application', defaultExt: '.mjs'},
         {prefix: 'Host_', target: location.origin + '/test/browser/application', defaultExt: '.mjs'},
     ], preprocessors: ['Host_Browser__Preprocessor$']});
@@ -35,7 +35,7 @@ export async function run() {
         const {model, fingerprint} = await compiler.exec({schemas: [source]});
         const configuration = await container.get('Host_Browser__Configuration$');
         configuration.set({model, name, enforceRelations: true});
-        const adapter = await container.get('TeqFw_DemIdb_Adapter$');
+        const adapter = await container.get('TeqFw_Dem_IDb_Adapter$');
         backend = await adapter.open(await configuration.get());
         await backend.createSchema();
         provider = await container.get('TeqFw_Dem_Api_RepositoryProvider$');

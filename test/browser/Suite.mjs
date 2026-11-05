@@ -21,10 +21,10 @@ const assert = {
 };
 const container = new Container();
 container.addNamespaceRoot('TeqFw_Dem_', location.origin + '/dem/src', '.mjs');
-container.addNamespaceRoot('TeqFw_DemIdb_', location.origin + '/src', '.mjs');
+container.addNamespaceRoot('TeqFw_Dem_IDb_', location.origin + '/src', '.mjs');
 (await container.get('TeqFw_Dem_Registry$')).finalize();
 const compiler = await container.get('TeqFw_Dem_Compile$');
-const adapter = await container.get('TeqFw_DemIdb_Adapter$');
+const adapter = await container.get('TeqFw_Dem_IDb_Adapter$');
 const selection = await container.get('TeqFw_Dem_Dto_Query_Selection__Factory$');
 let sequence = 0;
 const compile = async schema => (await compiler.exec({schemas:[{packageName:'test',filename:'schema.json',document:schema}]})).model;
@@ -290,9 +290,9 @@ test('browser host substitutes the DEM provider through actual DI preprocessing'
     const c=new Container({preprocessors:['Test_Preprocessor$']});
     c.addNamespaceRoot('Test_',location.origin+'/test/fixture','.mjs');
     c.addNamespaceRoot('TeqFw_Dem_',location.origin+'/dem/src','.mjs');
-    c.addNamespaceRoot('TeqFw_DemIdb_',location.origin+'/src','.mjs');
+    c.addNamespaceRoot('TeqFw_Dem_IDb_',location.origin+'/src','.mjs');
     c.enableTestMode();
-    c.register('TeqFw_DemIdb_Api_Configuration$',{get:async()=>({model:env.model,name:env.name})});
+    c.register('TeqFw_Dem_IDb_Api_Configuration$',{get:async()=>({model:env.model,name:env.name})});
     let provider;
     try {
         provider=await c.get('TeqFw_Dem_Api_RepositoryProvider$');
@@ -330,7 +330,7 @@ test('native key and equality lookup avoid full scans, with non-keyable JSON/boo
 test('extension Equality lookups scan while core lookups retain native index narrowing',async()=>{
     const c=new Container();
     c.addNamespaceRoot('TeqFw_Dem_',location.origin+'/dem/src','.mjs');
-    c.addNamespaceRoot('TeqFw_DemIdb_',location.origin+'/src','.mjs');
+    c.addNamespaceRoot('TeqFw_Dem_IDb_',location.origin+'/src','.mjs');
     const registry=await c.get('TeqFw_Dem_Registry$');
     registry.register([{
         name:'example.CaseFolded',parameters:{},normalizeParams:params=>params,
@@ -344,7 +344,7 @@ test('extension Equality lookups scan while core lookups retain native index nar
     const handler={name:'example.CaseFolded',normalize:value=>value,copy:value=>value,equals:(left,right)=>left.toLowerCase()===right.toLowerCase()};
     const runtime=(await c.get('TeqFw_Dem_Repository_Runtime$')).bind({model,registry,handlers:[handler]});
     const name='dem-idb-extension-equality-'+ ++sequence;
-    const provider=await (await c.get('TeqFw_DemIdb_Adapter$')).open({model,name,runtime});
+    const provider=await (await c.get('TeqFw_Dem_IDb_Adapter$')).open({model,name,runtime});
     let scans=0,indexReads=0;
     const originalStore=IDBObjectStore.prototype.getAll,originalIndex=IDBIndex.prototype.getAll;
     try {
@@ -428,12 +428,12 @@ test('shared structural evolution and history workload',async()=>{
 test('native CryptoKey survives IndexedDB and key-only replacement', async () => {
     const c=new Container();
     c.addNamespaceRoot('TeqFw_Dem_',location.origin+'/dem/src','.mjs');
-    c.addNamespaceRoot('TeqFw_DemIdb_',location.origin+'/src','.mjs');
+    c.addNamespaceRoot('TeqFw_Dem_IDb_',location.origin+'/src','.mjs');
     const registry=await c.get('TeqFw_Dem_Registry$');
-    registry.register([...(await (await c.get('TeqFw_DemIdb_Type_CryptoKey_Provider$')).getDefinitions())]);
+    registry.register([...(await (await c.get('TeqFw_Dem_IDb_Type_CryptoKey_Provider$')).getDefinitions())]);
     registry.finalize();
     const model=(await (await c.get('TeqFw_Dem_Compile$')).exec({schemas:[{packageName:'crypto-test',filename:'schema.json',document:{$format:2,$namespace:'/crypto/',item:{attributes:[{name:'id',type:{name:'text'}},{name:'label',type:{name:'text'}},{name:'key',type:{name:'idb.CryptoKey'}},{name:'optional',type:{name:'idb.CryptoKey'},nullable:true}],primaryKey:['id'],uniqueKeys:{by_label:['label']}}}}]})).model;
-    const handler=await c.get('TeqFw_DemIdb_Type_CryptoKey_Handler$');
+    const handler=await c.get('TeqFw_Dem_IDb_Type_CryptoKey_Handler$');
     const runtime=(await c.get('TeqFw_Dem_Repository_Runtime$')).bind({model,registry,handlers:[handler]});
     const name='dem-idb-cryptokey-'+ ++sequence;
     const key1=await crypto.subtle.generateKey({name:'HMAC',hash:'SHA-256'},false,['sign','verify']);

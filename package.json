@@ -13,7 +13,7 @@
     "skills/"
   ],
   "scripts": {
-    "test": "node --test test/integration.test.mjs test/unit/*.test.mjs test/unit/Api/*.test.mjs",
+    "test": "teqfw-esm-validator src --profile base && node --test test/integration.test.mjs test/unit/*.test.mjs test/unit/Api/*.test.mjs",
     "verify": "npm test && npm run typecheck && npm run test:browser",
     "typecheck": "tsc -p tsconfig.json",
     "test:browser": "node --test test/browser/Runtime.test.mjs"
@@ -47,7 +47,7 @@
       "di": {
         "namespaces": [
           {
-            "prefix": "TeqFw_DemIdb_",
+            "prefix": "TeqFw_Dem_IDb_",
             "path": "./src",
             "ext": ".mjs"
           }
