@@ -364,8 +364,18 @@ export default class Adapter {
                 shape(params,['operations']);
                 const commands=batchExec.validate({model:snapshot,operations:params.operations});
                 const write=commands.some(command=>['create','update','delete'].includes(command.method));
-                return run(null,write,({tx,data,counter})=>{
-                    const before=Object.fromEntries(paths.map(p=>[p,data[p].map(row=>({key:row.key,row}))]));
+                const single=commands.length===1 ? commands[0] : undefined;
+                const scope=single && !write ? single.path : null;
+                let lookup;
+                if (single?.method==='read') lookup={members:Object.keys(single.params.key.values),values:Object.values(single.params.key.values)};
+                if (single?.method==='list') {
+                    const where=single.params.selection.where;
+                    if (where?.operator==='eq' && where.args?.[0]?.kind==='attr' && where.args?.[1]?.kind==='value')
+                        lookup={members:[where.args[0].name],values:[where.args[1].value]};
+                }
+                return run(scope,write,({tx,data,counter})=>{
+                    const affected=scope===null || enforceRelations && write ? paths : [scope];
+                    const before=Object.fromEntries(affected.map(p=>[p,data[p].map(row=>({key:row.key,row}))]));
                     const result=batchExec.plan({model:snapshot,operations:commands,rows:data,enforceRelations,
                         generate:({path,attribute,rows})=>{
                             if (attribute.type.profile.type==='uuid') return globalThis.crypto.randomUUID();
@@ -378,7 +388,7 @@ export default class Adapter {
                             if (a && BigInt(record[a.name])>BigInt(counter[path] ?? '0')) counter[path]=record[a.name];
                         },
                     });
-                    if (write) for (const p of paths) {
+                    if (write) for (const p of affected) {
                         const store=tx.objectStore(stores[p]), initial=new Map(before[p].map(item=>[item.key,item.row]));
                         const keys=new Set(data[p].filter(row=>row.key!==undefined).map(row=>row.key));
                         for (const key of initial.keys()) if (!keys.has(key)) store.delete(key);
@@ -389,7 +399,7 @@ export default class Adapter {
                         tx.objectStore(sequenceStore).put(counter[p] ?? '0',p);
                     }
                     return result;
-                });
+                },lookup);
             };
             /** @returns {Promise<any>} */
             const getSchemaHistory=async function () {
