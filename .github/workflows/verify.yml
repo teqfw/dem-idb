@@ -1,0 +1,44 @@
+name: Verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      CHROME_PATH: /usr/bin/google-chrome
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Confirm headless browser
+        run: |
+          test -x "$CHROME_PATH"
+          "$CHROME_PATH" --version
+
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+
+      - name: Run unit, type and real-browser verification
+        run: npm run verify
+
+      - name: Check package contents
+        run: npm pack --dry-run
