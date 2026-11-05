@@ -139,3 +139,34 @@ README owns the cross-package setup/commands. Both packages must resolve the cur
 DEM application exports. This test uses native ESM delivery and real Chrome, without
 DI test substitutions or repository mocks. Browser setup APIs remain confined to
 this root, while Workflow injects only the portable provider and Selection contracts.
+
+
+## Planned: native CryptoKey and model-bound Runtime
+
+The following is an accepted target, **not implemented yet**. DEM-IDB will expose
+`TeqFw_DemIdb_Type_CryptoKey_Provider$` and
+`TeqFw_DemIdb_Type_CryptoKey_Handler$` for host composition:
+
+```js
+const registry = await container.get('TeqFw_Dem_Registry$');
+const provider = await container.get('TeqFw_DemIdb_Type_CryptoKey_Provider$');
+registry.register(provider.getDefinitions());
+registry.finalize();
+const {model} = await compiler.exec({schemas}); // CryptoKey attribute: type: {name: 'idb.CryptoKey'}
+const handler = await container.get('TeqFw_DemIdb_Type_CryptoKey_Handler$');
+const runtime = (await container.get('TeqFw_Dem_Repository_Runtime$'))
+    .bind({model, registry, handlers: [handler]});
+const backend = await adapter.open({model, name: 'example-app', runtime});
+```
+
+Provider configuration will pass the same options for repository and batch access.
+Core-only models need no runtime option. A mismatched runtime is invalid; extension
+models require a matching binding. The host owns the binding and closes the backend.
+The type accepts native CryptoKey values and uses structured clone without exporting
+key material. Algorithms, usages and extractability are application policy. Keys
+cannot be indexed, compared, used in relations or as primary/unique keys. Nullable
+attributes follow ordinary DEM rules. The browser must support structured cloning and
+IndexedDB storage of CryptoKeys. Invalid input reports `INVALID_INPUT`, missing
+capabilities `UNSUPPORTED`, and clone/storage failures `STORAGE`. Atomic writes and
+repository semantics remain in force. This target awaits implementation and real
+Chromium verification.

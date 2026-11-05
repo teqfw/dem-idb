@@ -34,3 +34,17 @@ getSchemaHistory through the adapter backend and replace stale providers after
 structural upgrades. All-core comparisons and keyless ordering follow DEM, including
 byte ordering, numeric vector lexicographic order and canonical JSON representation
 order. Async callbacks and schema commands are outside atomic data batches.
+
+
+## Planned native CryptoKey integration
+
+This is an accepted target, not current behavior. Follow the README's planned
+composition example: register the DEM-IDB CryptoKey provider before finalizing the
+host Registry and compiling; bind its handler with DEM Runtime to that model; pass
+`runtime` to `Adapter.open` or Provider configuration. Core-only models need no
+binding. The host owns Runtime and closes the shared backend. `idb.CryptoKey` uses
+native structured clone; it has no equality, ordering, literal, default or generation
+and cannot be a key, index, relation or comparison operand. Application code validates
+algorithm, usages and extractability. Missing capabilities or binding are
+`UNSUPPORTED`, invalid input `INVALID_INPUT`, and clone/storage failures `STORAGE`.
+Use DEM repositories for application access.
