@@ -1,5 +1,7 @@
 # @teqfw/dem-idb
 
+**Target transition:** The namespace identifiers in this document describe the accepted target. The current implementation and package metadata still use the former prefix; align them before using these examples. No compatibility alias is intended.
+
 IndexedDB persistence for [TeqFW DEM](https://github.com/teqfw/dem). Compile the same JSON declarations with DEM and select this adapter in a browser or DEM-RDB in Node.js. Application code uses DEM's repository methods and logical values in both environments.
 
 DEM schema descriptors use Format 2. Format 1 schema descriptors are rejected by
@@ -10,7 +12,7 @@ The adapter creates one object store per effective entity, native non-unique loo
 
 ## Initialize a model
 
-The browser host registers served ESM namespace roots for `TeqFw_Dem_` and `TeqFw_DemIdb_` in its TeqFW container before resolving components. Browser module delivery and composition belong to the host.
+The browser host registers served ESM namespace roots for `TeqFw_Dem_` and `TeqFw_Dem_IDb_` in its TeqFW container before resolving components. Browser module delivery and composition belong to the host.
 
 ```js
 const compiler = await container.get('TeqFw_Dem_Compile$');
@@ -26,7 +28,7 @@ const {model} = await compiler.exec({schemas: [{
         ]},
     },
 }]});
-const adapter = await container.get('TeqFw_DemIdb_Adapter$');
+const adapter = await container.get('TeqFw_Dem_IDb_Adapter$');
 const backend = await adapter.open({model, name: 'example-app'});
 await backend.createSchema(); // Explicit creation or model update; retains records.
 const users = await backend.get({path: '/app/user'});
@@ -41,7 +43,7 @@ await backend.close();
 
 `open({model, name, indexedDB?, enforceRelations?, runtime?})` configures a provider without creating a database. `indexedDB` defaults to the browser global. `get({path})` opens an existing compatible database; initialization is explicit. Methods return the DEM result envelopes and shared `DemRepositoryError` codes. `createSchema()` returns `{database, stores, version}` for host administration; direct writes through that raw connection bypass adapter checks.
 
-For DI substitution, map `TeqFw_Dem_Api_RepositoryProvider$` to `TeqFw_DemIdb_Provider$` using a host preprocessor. Map `TeqFw_DemIdb_Api_Configuration$` to a host component whose asynchronous `get()` returns the adapter options. Initialize the schema separately through the adapter first. The provider opens lazily, caches its backend, and exposes `close()` for host shutdown. The default configuration fails with `UNSUPPORTED`.
+For DI substitution, map `TeqFw_Dem_Api_RepositoryProvider$` to `TeqFw_Dem_IDb_Provider$` using a host preprocessor. Map `TeqFw_Dem_IDb_Api_Configuration$` to a host component whose asynchronous `get()` returns the adapter options. Initialize the schema separately through the adapter first. The provider opens lazily, caches its backend, and exposes `close()` for host shutdown. The default configuration fails with `UNSUPPORTED`.
 
 ## Compatibility and capabilities
 
@@ -112,7 +114,7 @@ create/read/update/delete/list commands in one native data transaction. It retur
 {results} in command order only after commit; any failure aborts all effects and
 sequence updates. Keys for dependent commands must be explicit. No async callbacks,
 schema commands or generated-result references are supported. The host can map
-`TeqFw_Dem_Api_RepositoryBatch$` to the same `TeqFw_DemIdb_Provider$` instance used
+`TeqFw_Dem_Api_RepositoryBatch$` to the same `TeqFw_Dem_IDb_Provider$` instance used
 for RepositoryProvider. Bulk operations use batches of ordinary commands.
 
 backend.getSchemaHistory() returns {schemas:[{version,model}]} with complete applied
@@ -149,7 +151,7 @@ above), the following example creates and reads a non-extractable HMAC key:
 
 ```js
 const registry = await container.get('TeqFw_Dem_Registry$');
-const provider = await container.get('TeqFw_DemIdb_Type_CryptoKey_Provider$');
+const provider = await container.get('TeqFw_Dem_IDb_Type_CryptoKey_Provider$');
 registry.register(provider.getDefinitions());
 registry.finalize();
 
@@ -164,10 +166,10 @@ const {model} = await compiler.exec({schemas: [{
         primaryKey: ['id'],
     }},
 }]});
-const handler = await container.get('TeqFw_DemIdb_Type_CryptoKey_Handler$');
+const handler = await container.get('TeqFw_Dem_IDb_Type_CryptoKey_Handler$');
 const runtime = (await container.get('TeqFw_Dem_Repository_Runtime$'))
     .bind({model, registry, handlers: [handler]});
-const adapter = await container.get('TeqFw_DemIdb_Adapter$');
+const adapter = await container.get('TeqFw_Dem_IDb_Adapter$');
 const backend = await adapter.open({model, name: 'example-keys', runtime});
 try {
     await backend.createSchema();

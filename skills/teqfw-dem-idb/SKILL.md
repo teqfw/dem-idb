@@ -16,7 +16,7 @@ entities in `/dem` before database access. Historical layouts such as `dem:/...`
 `dem_schema` and `dem_sequence` are deliberately unsupported and rejected without
 modifying the database; the host owns any required migration.
 
-Host composition may map `TeqFw_Dem_Api_RepositoryProvider$` to `TeqFw_DemIdb_Provider$` and the configuration contract to a host component returning adapter options. Business components use DEM repositories. Close the backend/provider at host shutdown and replace providers invalidated by schema upgrades.
+Host composition may map `TeqFw_Dem_Api_RepositoryProvider$` to `TeqFw_Dem_IDb_Provider$` and the configuration contract to a host component returning adapter options. Business components use DEM repositories. Close the backend/provider at host shutdown and replace providers invalidated by schema upgrades.
 
 Relations are descriptive by default; `enforceRelations:true` enables same-database atomic integrity checks. Eligible Core key/equality reads use native indexes with coverage-safe fallback; extension-type lookups scan; other
 selections and logical write checks scan records. Keep these differences and browser storage lifecycle visible when comparing with RDB. Structural schema updates preserve stores and snapshots but do not infer data conversions or audit historical constraints. The host owns migrations, backup and synchronization. Verify real browser behavior before claiming support for additional runtimes.
@@ -39,8 +39,8 @@ order. Async callbacks and schema commands are outside atomic data batches.
 ## Native CryptoKey integration
 
 Follow the README's executable composition example: register
-`TeqFw_DemIdb_Type_CryptoKey_Provider$` before finalizing the host Registry and
-compiling; bind `TeqFw_DemIdb_Type_CryptoKey_Handler$` with DEM Runtime to that
+`TeqFw_Dem_IDb_Type_CryptoKey_Provider$` before finalizing the host Registry and
+compiling; bind `TeqFw_Dem_IDb_Type_CryptoKey_Handler$` with DEM Runtime to that
 model; pass `runtime` to `Adapter.open` or Provider configuration. Core-only models
 need no binding. Extension models require a binding with the same canonical model
 identity; a mismatch is `INVALID_INPUT`. The host owns Runtime and closes the shared
@@ -51,7 +51,7 @@ With a configured browser container and registered namespace roots:
 
 ```js
 const registry = await container.get('TeqFw_Dem_Registry$');
-const provider = await container.get('TeqFw_DemIdb_Type_CryptoKey_Provider$');
+const provider = await container.get('TeqFw_Dem_IDb_Type_CryptoKey_Provider$');
 registry.register(provider.getDefinitions());
 registry.finalize();
 
@@ -66,10 +66,10 @@ const {model} = await compiler.exec({schemas: [{
         primaryKey: ['id'],
     }},
 }]});
-const handler = await container.get('TeqFw_DemIdb_Type_CryptoKey_Handler$');
+const handler = await container.get('TeqFw_Dem_IDb_Type_CryptoKey_Handler$');
 const runtime = (await container.get('TeqFw_Dem_Repository_Runtime$'))
     .bind({model, registry, handlers: [handler]});
-const adapter = await container.get('TeqFw_DemIdb_Adapter$');
+const adapter = await container.get('TeqFw_Dem_IDb_Adapter$');
 const backend = await adapter.open({model, name: 'example-keys', runtime});
 try {
     await backend.createSchema();
