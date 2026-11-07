@@ -9,7 +9,7 @@ export default class Handler {
      * @param {TeqFw_Dem_Repository_Error} deps.errors
      */
     constructor({errors}) {
-        /** @returns {Error} */
+        /** @returns {TeqFw_Dem_RepositoryError} */
         const unsupported = function () {return errors.create({code:'UNSUPPORTED',message:'Native CryptoKey and structuredClone are required.'});};
         /** @param {any} value @returns {any} */
         const clone = function (value) {

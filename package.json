@@ -13,7 +13,7 @@
     "skills/"
   ],
   "scripts": {
-    "test": "npm run check:esm && node --test test/integration.test.mjs test/unit/*.test.mjs test/unit/Api/*.test.mjs",
+    "test": "npm run check:esm && node --test test/integration.test.mjs test/unit/*.test.mjs test/unit/Api/*.test.mjs test/unit/Type/CryptoKey/*.test.mjs",
     "verify": "npm test && npm run typecheck && npm run test:browser",
     "typecheck": "tsc -p jsconfig.json",
     "test:browser": "node --test test/browser/Runtime.test.mjs",

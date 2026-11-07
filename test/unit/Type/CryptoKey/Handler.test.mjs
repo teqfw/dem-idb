@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {webcrypto} from 'node:crypto';
-import Handler from '../../src/Type/CryptoKey/Handler.mjs';
+import Handler from '../../../../src/Type/CryptoKey/Handler.mjs';
 
-const errors={create:({code,message})=>Object.assign(new Error(message),{name:'DemRepositoryError',code})};
+const errors=/** @type {any} */ ({create:(/** @type {{code:string,message:string}} */ {code,message})=>Object.assign(new Error(message),{name:'DemRepositoryError',code})});
 
 test('CryptoKey handler clones real keys and rejects lookalikes',async()=>{
     const handler=new Handler({errors});
@@ -26,7 +26,7 @@ test('CryptoKey handler distinguishes missing capabilities and clone failures',a
     try {
         globalThis.structuredClone=()=>{throw new DOMException('clone failed','DataCloneError');};
         assert.throws(()=>handler.normalize(key,{}),{code:'STORAGE'});
-        globalThis.structuredClone=undefined;
+        /** @type {any} */ (globalThis).structuredClone=undefined;
         assert.throws(()=>handler.normalize(key,{}),{code:'UNSUPPORTED'});
     } finally { globalThis.structuredClone=original; }
 });

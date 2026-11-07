@@ -28,5 +28,9 @@ declare global {
     type TeqFw_Dem_IDb_Api_Configuration__Class = typeof import('./src/Api/Configuration.mjs').default;
     type TeqFw_Dem_IDb_Provider = import('./src/Provider.mjs').default;
     type TeqFw_Dem_IDb_Provider__Class = typeof import('./src/Provider.mjs').default;
+    type TeqFw_Dem_IDb_Type_CryptoKey_Handler = import('./src/Type/CryptoKey/Handler.mjs').default;
+    type TeqFw_Dem_IDb_Type_CryptoKey_Handler__Class = typeof import('./src/Type/CryptoKey/Handler.mjs').default;
+    type TeqFw_Dem_IDb_Type_CryptoKey_Provider = import('./src/Type/CryptoKey/Provider.mjs').default;
+    type TeqFw_Dem_IDb_Type_CryptoKey_Provider__Class = typeof import('./src/Type/CryptoKey/Provider.mjs').default;
 }
 export {};
