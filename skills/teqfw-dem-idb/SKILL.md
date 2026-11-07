@@ -23,8 +23,8 @@ selections and logical write checks scan records. Keep these differences and bro
 
 
 Selection evaluation is shared with RDB through DEM Repository/Select. The browser
-suite exports the shared all-type workload transcript for DEM-RDB's comparison
-runner. This proves its covered actions, not every possible value or operation.
+suite runs the shared all-type workload against IndexedDB. Its observations cover
+the exercised actions, not every possible value, operation or SQL engine.
 
 
 Map the optional `TeqFw_Dem_Api_RepositoryBatch$` token to the same configured

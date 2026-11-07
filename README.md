@@ -1,7 +1,5 @@
 # @teqfw/dem-idb
 
-**Target transition:** The namespace identifiers in this document describe the accepted target. The current implementation and package metadata still use the former prefix; align them before using these examples. No compatibility alias is intended.
-
 IndexedDB persistence for [TeqFW DEM](https://github.com/teqfw/dem). Compile the same JSON declarations with DEM and select this adapter in a browser or DEM-RDB in Node.js. Application code uses DEM's repository methods and logical values in both environments.
 
 DEM schema descriptors use Format 2. Format 1 schema descriptors are rejected by
@@ -63,7 +61,7 @@ Each operation uses a native transaction and reports a write result after commit
 
 ## Schema history and updates
 
-Each application object store is named exactly after its effective entity path (for example, `/app/user`). The reserved internal stores `/dem/schema` and `/dem/sequence` retain `{version, layout, model}` snapshots and integer allocation counters. Application models that place entities in `/dem` or its subtree are rejected before IndexedDB access. Entity records use private out-of-line auto-generated IndexedDB keys, independent of logical identities. Logical keys, declared indexes and relations are retained in the model. Valid native key paths get non-unique lookup indexes; native key restrictions do not prevent logical values from being stored or queried.
+Each application object store is named exactly after its effective entity path (for example, `/app/user`). The reserved internal stores `/dem/schema` and `/dem/sequence` retain `{version, layout, model}` snapshots and integer allocation counters. Models that place entities in `/dem` or its subtree are rejected before IndexedDB access, including DEM-owned history entities. DEM-owned history is not yet implemented by this adapter. Entity records use private out-of-line auto-generated IndexedDB keys, independent of logical identities. Logical keys, declared indexes and relations are retained in the model. Valid native key paths get non-unique lookup indexes; native key restrictions do not prevent logical values from being stored or queried.
 
 The adapter deliberately does not support historical physical layouts such as `dem:/...`, `dem_schema` or `dem_sequence`. It rejects such databases before an upgrade and leaves their stores and data unchanged. The host owns any required migration; this package does not rename, copy, convert or delete historical data.
 
@@ -94,9 +92,7 @@ Apache-2.0.
 
 
 The browser suite also runs `@teqfw/dem/conformance/values`, the shared all-type
-workload. DEM-RDB's `test:compare` runner compares its complete observation
-transcript with real SQL engines. Set `TEQFW_DEM_IDB_ROOT` to this checkout when
-running that gate from DEM-RDB. Both adapters must use the same DEM version.
+workload against real IndexedDB. This alone does not establish SQL parity.
 
 
 Native lookup planning checks the actual index key path and whether the literal is
@@ -127,7 +123,7 @@ surrogates fail DEM validation.
 `test/browser/application/Browser.mjs` is a minimal Composition Root for DEM's
 published task-triage Workflow. It compiles the shared Schema source, registers
 namespace/preprocessor mappings, initializes real IDB and resolves Demo_Workflow$.
-All application operations remain in the same DEM module used by the SQLite root.
+The application operations reside in the shared DEM module.
 The root closes providers/connections and deletes its isolated database in finally.
 
 ```sh
@@ -135,10 +131,8 @@ DEM_BROWSER_SCENARIO=application npm run test:browser
 # Optionally retain the envelope with DEM_COMPARE_OUTPUT=/tmp/application-idb.json.
 ```
 
-The normal browser suite also executes this workflow. DEM-RDB's test:application
-compares application source hashes, models/fingerprints and complete results; its
-README owns the cross-package setup/commands. Both packages must resolve the current
-DEM application exports. This test uses native ESM delivery and real Chrome, without
+The normal browser suite also executes this workflow using the DEM application
+exports. This test uses native ESM delivery and real Chrome, without
 DI test substitutions or repository mocks. Browser setup APIs remain confined to
 this root, while Workflow injects only the portable provider and Selection contracts.
 
