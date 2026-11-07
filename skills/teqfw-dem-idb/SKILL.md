@@ -15,6 +15,8 @@ adapter reserves `/dem/schema` and `/dem/sequence`, and rejects application
 entities in `/dem` before database access. Historical layouts such as `dem:/...`,
 `dem_schema` and `dem_sequence` are deliberately unsupported and rejected without
 modifying the database; the host owns any required migration.
+The adapter's structural snapshots are separate from DEM-owned history, which it
+does not yet implement; models containing those history entities are rejected.
 
 Host composition may map `TeqFw_Dem_Api_RepositoryProvider$` to `TeqFw_Dem_IDb_Provider$` and the configuration contract to a host component returning adapter options. Business components use DEM repositories. Close the backend/provider at host shutdown and replace providers invalidated by schema upgrades.
 

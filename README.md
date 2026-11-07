@@ -82,7 +82,7 @@ teqfw-platform .
 teqfw-esm-validator . --profile base
 ```
 
-`verify` runs Node unit checks, TypeScript checks and the browser suite. The browser suite runs the published DEM conformance cases against actual IndexedDB plus type, schema-history, concurrency, upgrade, rollback and DI integration scenarios. No persistence mock is used as browser conformance evidence.
+`verify` runs ESM validation, Node tests and the browser suite. `npm run typecheck` is a separate optional check. The browser suite runs the published DEM conformance cases against actual IndexedDB plus type, schema-history, concurrency, upgrade, rollback and DI integration scenarios. No persistence mock is used as browser conformance evidence.
 
 The cognitive context is an independent private checkout at `ctx/`, excluded from npm. The package-owned consumer skill ships in `skills/teqfw-dem-idb/`.
 
