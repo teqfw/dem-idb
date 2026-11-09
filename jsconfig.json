@@ -21,5 +21,11 @@
     "node_modules/@teqfw",
     "src/**/*.mjs",
     "test/types.ts"
+  ],
+  "exclude": [
+    "ctx",
+    "node_modules/@flancer32/skill-teqfw-esm-validator",
+    "node_modules/@flancer32/**/*.js",
+    "node_modules/@teqfw/**/*.js"
   ]
 }
