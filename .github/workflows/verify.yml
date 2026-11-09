@@ -34,8 +34,18 @@ jobs:
           test -x "$CHROME_PATH"
           "$CHROME_PATH" --version
 
-      - name: Install dependencies
-        run: npm install --ignore-scripts
+      # Use the exact candidate until DEM 2.0.0 is published to npm.
+      - name: Check out DEM candidate
+        uses: actions/checkout@v4
+        with:
+          repository: teqfw/dem
+          ref: f8b504aaa9487b001689a3d6dae82a2d1c403eeb
+          path: .dem-release-source
+
+      - name: Install dependencies with DEM candidate
+        run: |
+          npm pack ./.dem-release-source --pack-destination "$RUNNER_TEMP"
+          npm install --ignore-scripts --no-save "$RUNNER_TEMP/teqfw-dem-2.0.0.tgz"
 
       - name: Run unit, type and real-browser verification
         run: npm run verify
