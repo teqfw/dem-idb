@@ -1,6 +1,6 @@
 {
   "name": "@teqfw/dem-idb",
-  "version": "0.3.0",
+  "version": "2.0.0",
   "description": "IndexedDB persistence adapter for TeqFW Domain Entity Model.",
   "type": "module",
   "license": "Apache-2.0",
@@ -13,22 +13,20 @@
     "skills/"
   ],
   "scripts": {
-    "test": "npm run check:esm && node --test test/integration.test.mjs test/unit/*.test.mjs test/unit/Api/*.test.mjs test/unit/Type/CryptoKey/*.test.mjs",
+    "test": "node --test test/integration.test.mjs test/unit/*.test.mjs test/unit/Api/*.test.mjs test/unit/Type/CryptoKey/*.test.mjs",
     "verify": "npm test && npm run test:browser",
     "typecheck": "tsc -p jsconfig.json",
-    "test:browser": "node --test test/browser/Runtime.test.mjs",
-    "check:esm": "teqfw-esm-validator src --profile base"
+    "test:browser": "node --test test/browser/Runtime.test.mjs"
   },
   "dependencies": {
-    "@teqfw/dem": "^0.4.0"
+    "@teqfw/dem": "^2.0.0"
   },
   "peerDependencies": {
     "@teqfw/di": "^2.11.0"
   },
   "devDependencies": {
     "typescript": "^5.9.3",
-    "@types/node": "^22.20.5",
-    "@flancer32/skill-teqfw-esm-validator": "^0.15.2"
+    "@types/node": "^22.20.5"
   },
   "types": "types.d.ts",
   "exports": {

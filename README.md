@@ -11,11 +11,11 @@ The adapter creates one object store per effective entity, native non-unique loo
 ## Installation
 
 ```sh
-npm install @teqfw/dem@^0.4.0 @teqfw/dem-idb@^0.3.0 @teqfw/di@^2.11.0
+npm install @teqfw/dem@^2.0.0 @teqfw/dem-idb@^2.0.0 @teqfw/di@^2.11.0
 ```
 
 The browser host serves the installed DEM, DEM-IDB and DI ESM modules and registers
-their namespace roots. Version 0.3.x requires DEM 0.4.x and rejects Format 1 schemas
+their namespace roots. Version 2.x requires DEM 2.x and rejects Format 1 schemas
 and the historical IndexedDB physical layouts described below.
 
 ## Initialize a model
@@ -83,16 +83,15 @@ Browser quota, eviction, user clearing, unexpected closure, upgrade blocking and
 
 ## Development
 
-Install dependencies before running checks. This release uses `@teqfw/dem` 0.4.x. Node.js runs the test harness; Chrome supplies real IndexedDB. Set `CHROME_PATH` if needed.
+Install dependencies before running checks. This release uses `@teqfw/dem` 2.x. Node.js runs the test harness; Chrome supplies real IndexedDB. Set `CHROME_PATH` if needed.
 
 ```sh
 npm run verify
 npm pack --dry-run
 teqfw-platform .
-teqfw-esm-validator . --profile base
 ```
 
-`verify` runs ESM validation, Node tests and the browser suite. `npm run typecheck` is a separate optional check. The browser suite runs the published DEM conformance cases against actual IndexedDB plus type, schema-history, concurrency, upgrade, rollback and DI integration scenarios. No persistence mock is used as browser conformance evidence.
+`verify` runs Node tests and the browser suite. Agents validate source conventions separately using the locally installed `teqfw-esm-validator` skill and CLI; this tool is not a project dependency or CI gate. `npm run typecheck` is a separate optional check. The browser suite runs the published DEM conformance cases against actual IndexedDB plus type, schema-history, concurrency, upgrade, rollback and DI integration scenarios. No persistence mock is used as browser conformance evidence.
 
 The cognitive context is an independent private checkout at `ctx/`, excluded from npm. The package-owned consumer skill ships in `skills/teqfw-dem-idb/`.
 

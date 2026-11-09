@@ -3,7 +3,10 @@ import {test} from 'node:test';
 import {createServer} from 'node:http';
 import {readFile,writeFile,mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join,resolve} from 'node:path';
+import {dirname,join,resolve} from 'node:path';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import NamespaceRegistry from '@teqfw/di/node/registry/namespace';
 import {fileURLToPath} from 'node:url';
 import {spawn} from 'node:child_process';
 
@@ -23,7 +26,10 @@ test('browser observation preserves Unicode across HTTP chunk boundaries', async
 test('DEM repositories and schema lifecycle on real browser IndexedDB', {timeout:90000}, async () => {
     const testRoot = fileURLToPath(new URL('../../',import.meta.url));
     const root = process.env.IDB_PACKAGE_ROOT ?? testRoot;
-    const dem = fileURLToPath(new URL('../',import.meta.resolve('@teqfw/dem/etc/dem-schema.json')));
+    const namespaces = await new NamespaceRegistry({fs, path, appRoot: testRoot}).build();
+    const demNamespace = namespaces.find(entry => entry.prefix === 'TeqFw_Dem_');
+    if (!demNamespace) throw new Error('DEM namespace is missing.');
+    const dem = dirname(demNamespace.dirAbs);
     const di = fileURLToPath(new URL('./',import.meta.resolve('@teqfw/di')));
     let receive;
     const result = new Promise(resolve => { receive = resolve; });
