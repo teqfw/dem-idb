@@ -1,6 +1,6 @@
 {
   "name": "@teqfw/dem-idb",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "IndexedDB persistence adapter for TeqFW Domain Entity Model.",
   "type": "module",
   "license": "Apache-2.0",
@@ -20,7 +20,7 @@
     "check:esm": "teqfw-esm-validator src --profile base"
   },
   "dependencies": {
-    "@teqfw/dem": "github:teqfw/dem"
+    "@teqfw/dem": "^0.4.0"
   },
   "peerDependencies": {
     "@teqfw/di": "^2.11.0"

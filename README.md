@@ -8,6 +8,16 @@ contract. Host maps are separate and continue to use Format 1.
 
 The adapter creates one object store per effective entity, native non-unique lookup indexes where possible, and versioned schema snapshots. It supports create/read/update/delete/list, primary and named unique keys (including composite keys), keyless entities, defaults, integer and UUID identity generation, and all DEM core logical value types. No additional production library or IndexedDB wrapper is required.
 
+## Installation
+
+```sh
+npm install @teqfw/dem@^0.4.0 @teqfw/dem-idb@^0.3.0 @teqfw/di@^2.11.0
+```
+
+The browser host serves the installed DEM, DEM-IDB and DI ESM modules and registers
+their namespace roots. Version 0.3.x requires DEM 0.4.x and rejects Format 1 schemas
+and the historical IndexedDB physical layouts described below.
+
 ## Initialize a model
 
 The browser host registers served ESM namespace roots for `TeqFw_Dem_` and `TeqFw_Dem_IDb_` in its TeqFW container before resolving components. Browser module delivery and composition belong to the host.
@@ -73,7 +83,7 @@ Browser quota, eviction, user clearing, unexpected closure, upgrade blocking and
 
 ## Development
 
-Install dependencies before running checks. This release uses `@teqfw/dem` 0.3.x. Node.js runs the test harness; Chrome supplies real IndexedDB. Set `CHROME_PATH` if needed.
+Install dependencies before running checks. This release uses `@teqfw/dem` 0.4.x. Node.js runs the test harness; Chrome supplies real IndexedDB. Set `CHROME_PATH` if needed.
 
 ```sh
 npm run verify
