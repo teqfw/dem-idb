@@ -1,7 +1,5 @@
 import {run as runApplication} from './application/Browser.mjs';
 import Container from '/di/dist/esm.js';
-import {register} from '/dem/conformance/Repository.mjs';
-import {schema as valueSchema,map as valueMap,exercise as valueExercise,atomicSchema,exerciseAtomic,extendedSchema,exerciseExtended,exerciseEvolution} from '/dem/conformance/Values.mjs';
 
 const cases = [];
 const test = (name, body) => cases.push({name, body});
@@ -26,6 +24,11 @@ container.addNamespaceRoot('TeqFw_Dem_IDb_', location.origin + '/src', '.mjs');
 const compiler = await container.get('TeqFw_Dem_Compile$');
 const adapter = await container.get('TeqFw_Dem_IDb_Adapter$');
 const selection = await container.get('TeqFw_Dem_Dto_Query_Selection__Factory$');
+const {register}=await container.get('TeqFw_Dem_Conformance_Repository$');
+const {schema:valueSchema,map:valueMap,exercise:valueExercise}=await container.get('TeqFw_Dem_Conformance_Values$');
+const {schema:atomicSchema,exercise:exerciseAtomic}=await container.get('TeqFw_Dem_Conformance_Atomic$');
+const {schema:extendedSchema,exercise:exerciseExtended}=await container.get('TeqFw_Dem_Conformance_Extended$');
+const {exercise:exerciseEvolution}=await container.get('TeqFw_Dem_Conformance_Evolution$');
 let sequence = 0;
 const compile = async schema => (await compiler.exec({schemas:[{packageName:'test',filename:'schema.json',document:schema}]})).model;
 const remove = name => new Promise((resolve,reject) => { const req = indexedDB.deleteDatabase(name); req.onsuccess = resolve; req.onerror = () => reject(req.error); });

@@ -101,7 +101,7 @@ The cognitive context is an independent private checkout at `ctx/`, excluded fro
 Apache-2.0.
 
 
-The browser suite also runs `@teqfw/dem/conformance/values`, the shared all-type
+The browser suite also runs `TeqFw_Dem_Conformance_Values$`, the shared all-type
 workload against real IndexedDB. This alone does not establish SQL parity.
 
 
@@ -132,7 +132,7 @@ surrogates fail DEM validation.
 
 `test/browser/application/Browser.mjs` is a minimal Composition Root for DEM's
 published task-triage Workflow. It compiles the shared Schema source, registers
-namespace/preprocessor mappings, initializes real IDB and resolves Demo_Workflow$.
+namespace/preprocessor mappings, initializes real IDB and resolves `TeqFw_Dem_Conformance_Application_Workflow$`.
 The application operations reside in the shared DEM module.
 The root closes providers/connections and deletes its isolated database in finally.
 
@@ -142,7 +142,7 @@ DEM_BROWSER_SCENARIO=application npm run test:browser
 ```
 
 The normal browser suite also executes this workflow using the DEM application
-exports. This test uses native ESM delivery and real Chrome, without
+components. This test uses native ESM delivery and real Chrome, without
 DI test substitutions or repository mocks. Browser setup APIs remain confined to
 this root, while Workflow injects only the portable provider and Selection contracts.
 

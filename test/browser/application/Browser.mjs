@@ -1,6 +1,5 @@
 // @ts-check
 import Container from '/di/dist/esm.js';
-import {source} from '/dem/conformance/application/Schema.mjs';
 
 /** Host-owned configuration, initialized before application resolution. */
 export class Configuration {
@@ -21,17 +20,17 @@ export function Preprocessor() {
 /** Execute the unchanged application through browser-only host composition. */
 export async function run() {
     const name = 'dem-application-' + crypto.randomUUID();
-    const applicationUrl = location.origin + '/dem/conformance/application/Workflow.mjs';
+    const applicationUrl = location.origin + '/dem/src/Conformance/Application/Workflow.mjs';
     const container = new Container({namespaces: [
         {prefix: 'TeqFw_Dem_', target: location.origin + '/dem/src', defaultExt: '.mjs'},
         {prefix: 'TeqFw_Dem_IDb_', target: location.origin + '/src', defaultExt: '.mjs'},
-        {prefix: 'Demo_', target: location.origin + '/dem/conformance/application', defaultExt: '.mjs'},
         {prefix: 'Host_', target: location.origin + '/test/browser/application', defaultExt: '.mjs'},
     ], preprocessors: ['Host_Browser__Preprocessor$']});
     let backend, provider;
     try {
         (await container.get('TeqFw_Dem_Registry$')).finalize();
         const compiler = await container.get('TeqFw_Dem_Compile$');
+        const {source} = await container.get('TeqFw_Dem_Conformance_Application_Schema$');
         const {model, fingerprint} = await compiler.exec({schemas: [source]});
         const configuration = await container.get('Host_Browser__Configuration$');
         configuration.set({model, name, enforceRelations: true});
@@ -39,7 +38,7 @@ export async function run() {
         backend = await adapter.open(await configuration.get());
         await backend.createSchema();
         provider = await container.get('TeqFw_Dem_Api_RepositoryProvider$');
-        const application = await container.get('Demo_Workflow$');
+        const application = await container.get('TeqFw_Dem_Conformance_Application_Workflow$');
         const transcript = await application.exec({model});
         const response = await fetch(applicationUrl);
         if (!response.ok) throw new Error('Cannot inspect shared application source.');

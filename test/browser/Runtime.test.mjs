@@ -23,7 +23,7 @@ test('browser observation preserves Unicode across HTTP chunk boundaries', async
 test('DEM repositories and schema lifecycle on real browser IndexedDB', {timeout:90000}, async () => {
     const testRoot = fileURLToPath(new URL('../../',import.meta.url));
     const root = process.env.IDB_PACKAGE_ROOT ?? testRoot;
-    const dem = fileURLToPath(new URL('../',import.meta.resolve('@teqfw/dem/conformance')));
+    const dem = fileURLToPath(new URL('../',import.meta.resolve('@teqfw/dem/etc/dem-schema.json')));
     const di = fileURLToPath(new URL('./',import.meta.resolve('@teqfw/di')));
     let receive;
     const result = new Promise(resolve => { receive = resolve; });
