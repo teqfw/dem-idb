@@ -40,8 +40,8 @@ order. Async callbacks and schema commands are outside atomic data batches.
 
 ## Inspect before selecting a storage transition
 
-The accepted `Adapter.inspectStorage({name, indexedDB?, expectedModel?})` contract
-awaits implementation. Verify availability in the installed adapter. It requires
+Use `Adapter.inspectStorage({name, indexedDB?, expectedModel?})` to inspect storage
+before provider access. It requires
 `IDBFactory.databases()` and runs before provider access, without a source Runtime.
 
 - `kind: 'absent'` records absence in a successful inventory. Use explicit

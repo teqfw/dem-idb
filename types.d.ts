@@ -15,8 +15,23 @@ export interface IdbBackend {
     getSchemaHistory(): Promise<{schemas: {version: number; model: DemModel}[]}>;
     close(): Promise<void>;
 }
+export type IdbStorageInspection =
+    | {kind: 'absent'}
+    | {
+        kind: 'existing';
+        version: number;
+        model: DemModel;
+        fingerprint: string;
+        schemas: {version: number; model: DemModel}[];
+        matchesExpected: boolean | null;
+    };
 export interface IdbAdapter {
     open(configuration: IdbConfiguration): Promise<IdbBackend>;
+    inspectStorage(input: {
+        name: string;
+        indexedDB?: IDBFactory;
+        expectedModel?: DemModel;
+    }): Promise<IdbStorageInspection>;
 }
 export interface IdbConfigurationProvider {
     get(): Promise<IdbConfiguration>;

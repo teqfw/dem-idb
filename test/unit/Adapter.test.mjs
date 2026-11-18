@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import Adapter from '../../src/Adapter.mjs';
 
 const errors = {create: ({code,message}) => Object.assign(new Error(message),{name:'DemRepositoryError',code})};
-const adapter = new Adapter({errors,normalize:{},selection:{}});
+const adapter = new Adapter({errors,normalize:{},selection:{},evaluate:{},batch:{},demCanonical:{exec:value=>value},fingerprint:{exec:()=>''}});
 
 test('rejects missing configuration before opening storage', async () => {
     await assert.rejects(adapter.open({model:null,name:'test',indexedDB:{}}),{code:'INVALID_INPUT'});

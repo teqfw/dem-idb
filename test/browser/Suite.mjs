@@ -17,9 +17,10 @@ const assert = {
         throw new Error('Expected rejection');
     },
 };
-const container = new Container();
-container.addNamespaceRoot('TeqFw_Dem_', location.origin + '/dem/src', '.mjs');
-container.addNamespaceRoot('TeqFw_Dem_IDb_', location.origin + '/src', '.mjs');
+const container = new Container({namespaces:[
+    {prefix:'TeqFw_Dem_',target:location.origin + '/dem/src',defaultExt:'.mjs'},
+    {prefix:'TeqFw_Dem_IDb_',target:location.origin + '/src',defaultExt:'.mjs'},
+]});
 (await container.get('TeqFw_Dem_Registry$')).finalize();
 const compiler = await container.get('TeqFw_Dem_Compile$');
 const adapter = await container.get('TeqFw_Dem_IDb_Adapter$');
@@ -49,6 +50,142 @@ test('fresh database uses effective entity paths and reserved internal stores', 
         assert.deepEqual(names,['/app/item','/dem/schema','/dem/sequence']);
         assert.deepEqual(env.initialized.stores,{'/app/item':'/app/item'});
     } finally {await env.close();}
+});
+
+test('storage inspection distinguishes absent and existing storage without writes', async () => {
+    const absentName = 'dem-idb-inspect-absent-' + ++sequence;
+    let openCalls = 0;
+    const factory = {databases: () => indexedDB.databases(), open: (...args) => { openCalls++; return indexedDB.open(...args); }};
+    assert.deepEqual(await adapter.inspectStorage({name:absentName,indexedDB:factory}),{kind:'absent'});
+    assert.equal(openCalls,0);
+    assert.equal((await indexedDB.databases()).some(entry => entry.name === absentName),false);
+
+    const env = await open({schema:simple});
+    try {
+        const repo = await env.provider.get({path:'/app/item'});
+        await repo.create({record:{name:'preserved'}});
+        const beforeHistory = await env.provider.getSchemaHistory();
+        const versionBefore = env.initialized.database.version;
+        const readCounters = () => new Promise((resolve,reject) => {
+            const tx=env.initialized.database.transaction('/dem/sequence','readonly');
+            const request=tx.objectStore('/dem/sequence').getAll();
+            tx.oncomplete=()=>resolve(request.result);
+            tx.onabort=()=>reject(tx.error);
+        });
+        const countersBefore = await readCounters();
+        const expected = await compile(simple);
+        const observed = await adapter.inspectStorage({name:env.name,expectedModel:expected});
+        assert.equal(observed.kind,'existing');
+        assert.equal(observed.version,1);
+        assert.equal(observed.matchesExpected,true);
+        assert.match(observed.fingerprint,/^dem-sha256-1:[0-9a-f]{64}$/);
+        assert.deepEqual(observed.schemas,beforeHistory.schemas);
+        assert.deepEqual((await repo.list({selection:{}})).records,[{id:'1',name:'preserved'}]);
+        assert.equal(env.initialized.database.version,versionBefore);
+        assert.deepEqual(await readCounters(),countersBefore);
+        const different = structuredClone(simple);
+        different.item.attributes.push({name:'optional',type:{name:'text'},nullable:true});
+        assert.equal((await adapter.inspectStorage({name:env.name,expectedModel:await compile(different)})).matchesExpected,false);
+        const reordered = {$format:2,$namespace:'/app/',item:{attributes:[
+            {name:'name',type:{name:'text'}},
+            {name:'id',type:{name:'identity'},generation:true},
+        ]}};
+        const reorderedResult = await adapter.inspectStorage({name:env.name,expectedModel:await compile(reordered)});
+        assert.equal(reorderedResult.matchesExpected,false);
+        assert.equal(reorderedResult.fingerprint,observed.fingerprint);
+        assert.deepEqual((await env.provider.getSchemaHistory()).schemas,beforeHistory.schemas);
+    } finally { await env.close(); }
+});
+
+test('storage inspection reports source history and physically retained stores', async () => {
+    const env = await open({schema:simple});
+    let changed, reduced;
+    try {
+        await (await env.provider.get({path:'/app/item'})).create({record:{name:'retained'}});
+        changed = structuredClone(simple);
+        changed.extra = {attributes:[{name:'label',type:{name:'text'}}]};
+        const upgraded = await adapter.open({model:await compile(changed),name:env.name});
+        try { await upgraded.createSchema(); } finally { await upgraded.close(); }
+        reduced = {$format:2,$namespace:'/app/',extra:changed.extra};
+        const latest = await adapter.open({model:await compile(reduced),name:env.name});
+        try { await latest.createSchema(); } finally { await latest.close(); }
+        const before = await indexedDB.databases();
+        const observed = await adapter.inspectStorage({name:env.name,expectedModel:await compile(reduced)});
+        const after = await indexedDB.databases();
+        assert.equal(observed.matchesExpected,true);
+        assert.deepEqual(observed.schemas.map(row=>row.version),[1,2,3]);
+        assert.deepEqual(observed.model,await compile(reduced));
+        assert.deepEqual(after,before);
+        const db = await new Promise((resolve,reject) => {
+            const request=indexedDB.open(env.name);
+            request.onsuccess=()=>resolve(request.result);
+            request.onerror=()=>reject(request.error);
+        });
+        try { assert.ok(db.objectStoreNames.contains('/app/item')); }
+        finally { db.close(); }
+    } finally { await env.close(); }
+});
+
+test('storage inspection rejects damaged metadata and aborted readonly probes', async () => {
+    const damaged = await open({schema:simple});
+    try {
+        await damaged.provider.close();
+        const db = await new Promise((resolve,reject) => {
+            const request=indexedDB.open(damaged.name);
+            request.onsuccess=()=>resolve(request.result);
+            request.onerror=()=>reject(request.error);
+        });
+        await new Promise((resolve,reject) => {
+            const tx=db.transaction('/dem/schema','readwrite');
+            const store=tx.objectStore('/dem/schema'), request=store.get(1);
+            request.onsuccess=()=>{ request.result.nativeLookup['/app/item']='invalid'; store.put(request.result); };
+            tx.oncomplete=resolve;
+            tx.onabort=()=>reject(tx.error);
+        });
+        db.close();
+        await assert.rejects(adapter.inspectStorage({name:damaged.name}),{code:'STORAGE'});
+    } finally { await damaged.provider.close(); await remove(damaged.name); }
+
+    const env = await open({schema:simple});
+    const blockedFactory = {
+        databases: () => indexedDB.databases(),
+        open() {
+            const request = {};
+            queueMicrotask(() => request.onblocked?.());
+            return request;
+        },
+    };
+    try { await assert.rejects(adapter.inspectStorage({name:env.name,indexedDB:blockedFactory}),{code:'STORAGE'}); }
+    finally { await env.close(); }
+
+    const abortEnv = await open({schema:simple});
+    const abortingFactory = {
+        databases: () => indexedDB.databases(),
+        open(name, version) {
+            const request=version === undefined ? indexedDB.open(name) : indexedDB.open(name,version);
+            return new Proxy(request,{
+                get(target,key) {
+                    if (key === 'result' && target.readyState === 'done' && target.result) {
+                        const db=target.result;
+                        return new Proxy(db,{get(database,property) {
+                            if (property === 'transaction') return (...args) => {
+                                const transaction=database.transaction(...args);
+                                queueMicrotask(()=>{try { transaction.abort(); } catch {}});
+                                return transaction;
+                            };
+                            const value=Reflect.get(database,property,database);
+                            return typeof value === 'function' ? value.bind(database) : value;
+                        }});
+                    }
+                    const value=Reflect.get(target,key,target);
+                    return typeof value === 'function' ? value.bind(target) : value;
+                },
+                set(target,key,value) { return Reflect.set(target,key,value,target); },
+            });
+        },
+    };
+    try { await assert.rejects(adapter.inspectStorage({name:abortEnv.name,indexedDB:abortingFactory}),{code:'STORAGE'}); }
+    finally { await abortEnv.close(); }
 });
 
 test('reserved application namespace is rejected before IndexedDB access', async () => {
@@ -290,10 +427,11 @@ test('self relations and nullable unique keys preserve repository semantics', as
 
 test('browser host substitutes the DEM provider through actual DI preprocessing', async () => {
     const env=await open({schema:simple});
-    const c=new Container({preprocessors:['Test_Preprocessor$']});
-    c.addNamespaceRoot('Test_',location.origin+'/test/fixture','.mjs');
-    c.addNamespaceRoot('TeqFw_Dem_',location.origin+'/dem/src','.mjs');
-    c.addNamespaceRoot('TeqFw_Dem_IDb_',location.origin+'/src','.mjs');
+    const c=new Container({preprocessors:['Test_Preprocessor$'],namespaces:[
+        {prefix:'Test_',target:location.origin+'/test/fixture',defaultExt:'.mjs'},
+        {prefix:'TeqFw_Dem_',target:location.origin+'/dem/src',defaultExt:'.mjs'},
+        {prefix:'TeqFw_Dem_IDb_',target:location.origin+'/src',defaultExt:'.mjs'},
+    ]});
     c.enableTestMode();
     c.register('TeqFw_Dem_IDb_Api_Configuration$',{get:async()=>({model:env.model,name:env.name})});
     let provider;
@@ -331,9 +469,10 @@ test('native key and equality lookup avoid full scans, with non-keyable JSON/boo
 });
 
 test('extension Equality lookups scan while core lookups retain native index narrowing',async()=>{
-    const c=new Container();
-    c.addNamespaceRoot('TeqFw_Dem_',location.origin+'/dem/src','.mjs');
-    c.addNamespaceRoot('TeqFw_Dem_IDb_',location.origin+'/src','.mjs');
+    const c=new Container({namespaces:[
+        {prefix:'TeqFw_Dem_',target:location.origin+'/dem/src',defaultExt:'.mjs'},
+        {prefix:'TeqFw_Dem_IDb_',target:location.origin+'/src',defaultExt:'.mjs'},
+    ]});
     const registry=await c.get('TeqFw_Dem_Registry$');
     registry.register([{
         name:'example.CaseFolded',parameters:{},normalizeParams:params=>params,
@@ -429,9 +568,10 @@ test('shared structural evolution and history workload',async()=>{
 });
 
 test('native CryptoKey survives IndexedDB and key-only replacement', async () => {
-    const c=new Container();
-    c.addNamespaceRoot('TeqFw_Dem_',location.origin+'/dem/src','.mjs');
-    c.addNamespaceRoot('TeqFw_Dem_IDb_',location.origin+'/src','.mjs');
+    const c=new Container({namespaces:[
+        {prefix:'TeqFw_Dem_',target:location.origin+'/dem/src',defaultExt:'.mjs'},
+        {prefix:'TeqFw_Dem_IDb_',target:location.origin+'/src',defaultExt:'.mjs'},
+    ]});
     const registry=await c.get('TeqFw_Dem_Registry$');
     registry.register([...(await (await c.get('TeqFw_Dem_IDb_Type_CryptoKey_Provider$')).getDefinitions())]);
     registry.finalize();

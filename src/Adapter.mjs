@@ -11,8 +11,10 @@ export default class Adapter {
      * @param {any} deps.selection
      * @param {any} deps.evaluate
      * @param {any} deps.batch
+     * @param {any} deps.demCanonical
+     * @param {any} deps.fingerprint
      */
-    constructor({errors, normalize, selection, evaluate, batch}) {
+    constructor({errors, normalize, selection, evaluate, batch, demCanonical, fingerprint}) {
         /**
          * @param {any} code
          * @param {any} message
@@ -48,6 +50,275 @@ export default class Adapter {
          */
         const isCanonicalPath = function (path) {
             return typeof path === 'string' && /^\/[a-z][a-z0-9]*(?:\/[a-z][a-z0-9]*)*$/.test(path);
+        };
+
+        /**
+         * Inspect the selected IndexedDB database without creating or modifying it.
+         * @param {any} input
+         * @returns {Promise<any>}
+         */
+        this.inspectStorage = async function (input = {}) {
+            if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !['name', 'indexedDB', 'expectedModel'].includes(key)))
+                fail('INVALID_INPUT', 'Invalid storage inspection parameters.');
+            const {name, indexedDB = globalThis.indexedDB, expectedModel} = input;
+            if (typeof name !== 'string' || !name) fail('INVALID_INPUT', 'A nonempty database name is required.');
+            /** @type {any} */
+            let expected;
+            if (expectedModel !== undefined) {
+                try {
+                    expected = JSON.parse(JSON.stringify(expectedModel));
+                    validateModel(expected);
+                } catch (error) {
+                    if (error?.name === 'DemRepositoryError') throw error;
+                    fail('INVALID_INPUT', 'The expected model is not a valid Effective DEM.');
+                }
+            }
+            if (!indexedDB || typeof indexedDB.databases !== 'function' || typeof indexedDB.open !== 'function')
+                fail('UNSUPPORTED', 'Storage inspection requires IDBFactory.databases() and open().');
+
+            const deadlineMs = 10000;
+            let phase = 'inventory';
+            let settled = false;
+            /** @type {IDBDatabase|undefined} */
+            let database;
+            /** @type {IDBTransaction|undefined} */
+            let transaction;
+            /** @type {ReturnType<typeof setTimeout>|undefined} */
+            let timer;
+            return new Promise((resolve, reject) => {
+                /** @returns {void} */
+                const close = () => { try { database?.close(); } catch {} database = undefined; };
+                /** @param {any} error @param {any} value @returns {void} */
+                const finish = (error, value) => {
+                    if (settled) return;
+                    settled = true;
+                    clearTimeout(timer);
+                    close();
+                    if (error) reject(error); else resolve(value);
+                };
+                /** @param {string} message @returns {any} */
+                const storageFailure = message => errors.create({code: 'STORAGE', message: `Storage inspection ${phase} failed: ${message}`});
+                /** @param {string} message @returns {void} */
+                const abort = message => {
+                    try { transaction?.abort(); } catch {}
+                    finish(storageFailure(message));
+                };
+                timer = setTimeout(() => abort('operation deadline exceeded.'), deadlineMs);
+
+                /** @type {any[]|undefined} */
+                let inventory;
+                try {
+                    const request = indexedDB.databases();
+                    Promise.resolve(request).then(entries => {
+                        if (settled) return;
+                        if (!Array.isArray(entries)) { finish(storageFailure('database inventory was malformed.')); return; }
+                        inventory = entries.filter(entry => entry?.name === name);
+                        if (!inventory.length) { finish(null, {kind: 'absent'}); return; }
+                        if (inventory.length !== 1 || !Number.isSafeInteger(inventory[0].version) || inventory[0].version < 1) {
+                            finish(storageFailure('database inventory was ambiguous or lacked a valid version.'));
+                            return;
+                        }
+                        phase = 'open';
+                        let request;
+                        try { request = indexedDB.open(name); }
+                        catch (error) { finish(storageFailure(String(error?.message ?? error))); return; }
+                        request.onupgradeneeded = () => {
+                            try { request.transaction?.abort(); } catch {}
+                            finish(storageFailure('database changed after inventory and an implicit upgrade was prevented.'));
+                        };
+                        request.onblocked = () => finish(storageFailure('database open was blocked.'));
+                        request.onerror = () => finish(storageFailure(String(request.error?.message ?? 'database open failed.')));
+                        request.onsuccess = () => {
+                            const db = request.result;
+                            if (settled) { try { db.close(); } catch {} return; }
+                            database = db;
+                            if (db.version !== inventory[0].version) { finish(storageFailure('database version changed after inventory.')); return; }
+                            phase = 'read';
+                            db.onversionchange = () => abort('database version changed during observation.');
+                            db.onclose = () => { if (!settled) abort('database connection closed during observation.'); };
+                            observe(db);
+                        };
+                    }, error => finish(storageFailure(String(error?.message ?? error))));
+                } catch (error) { finish(storageFailure(String(error?.message ?? error))); }
+
+                /** @param {IDBDatabase} db */
+                const observe = db => {
+                    try {
+                        const names = Array.from(db.objectStoreNames);
+                        const schemaName = '/dem/schema', sequenceName = '/dem/sequence';
+                        if (names.some(name => name.startsWith('dem:/') || name === 'dem_schema' || name === 'dem_sequence')) {
+                            finish(errors.create({code: 'UNSUPPORTED', message: 'Storage inspection found an obsolete DEM-IDB layout.'}));
+                            return;
+                        }
+                        if (!names.includes(schemaName) || !names.includes(sequenceName)) {
+                            finish(errors.create({code: 'UNSUPPORTED', message: 'Storage is not a recognized DEM-IDB database.'}));
+                            return;
+                        }
+                        transaction = db.transaction(names, 'readonly');
+                        let historyRequest, sequenceRequest, sequenceKeysRequest;
+                        const storeDefinitions = Object.create(null);
+                        try {
+                            const schemaStore = transaction.objectStore(schemaName);
+                            const sequenceStore = transaction.objectStore(sequenceName);
+                            validateMetaStore(schemaStore, 'schema');
+                            validateMetaStore(sequenceStore, 'sequence');
+                            historyRequest = schemaStore.getAll();
+                            sequenceRequest = sequenceStore.getAll();
+                            sequenceKeysRequest = sequenceStore.getAllKeys();
+                            for (const name of names) if (name !== schemaName && name !== sequenceName) {
+                                const store = transaction.objectStore(name);
+                                storeDefinitions[name] = {
+                                    keyPath: store.keyPath,
+                                    autoIncrement: store.autoIncrement,
+                                    indexes: Array.from(store.indexNames, indexName => {
+                                        const index = store.index(indexName);
+                                        return {name: index.name, keyPath: index.keyPath, unique: index.unique, multiEntry: index.multiEntry};
+                                    }),
+                                };
+                            }
+                        } catch (error) { abort(String(error?.message ?? error)); return; }
+                        transaction.onabort = () => finish(storageFailure(String(transaction.error?.message ?? 'read transaction aborted.')));
+                        transaction.onerror = () => {};
+                        transaction.oncomplete = () => {
+                            try {
+                                const {schemas, snapshots} = validateHistory(historyRequest.result, db.version, names);
+                                const model = schemas.at(-1).model;
+                                validatePhysicalLayout(snapshots, model, names, storeDefinitions, sequenceKeysRequest.result, sequenceRequest.result);
+                                const logicalCanonical = demCanonical.exec(model);
+                                const logicalFingerprint = fingerprint.exec({value: logicalCanonical});
+                                const matchesExpected = expected === undefined ? null : sameModel(model, expected);
+                                finish(null, {kind: 'existing', version: db.version, model, fingerprint: logicalFingerprint, schemas, matchesExpected});
+                            } catch (error) {
+                                if (error?.name === 'DemRepositoryError') finish(error);
+                                else finish(storageFailure(String(error?.message ?? error)));
+                            }
+                        };
+                    } catch (error) { finish(storageFailure(String(error?.message ?? error))); }
+                };
+            });
+        };
+
+        /** @param {any} left @param {any} right @returns {boolean} */
+        const sameModel = (left, right) => canonical(left) === canonical(right);
+
+        /** @param {any} model */
+        const validateModel = model => {
+            /** @param {string} message @returns {void} */
+            const invalid = message => { throw new TypeError(message); };
+            if (!jsonValue(model) || !plain(model) || !plain(model.entities) || !Object.keys(model.entities).length || !Object.hasOwn(model, 'packages')) invalid('entities');
+            if (!Array.isArray(model.packages) || model.packages.some(path => typeof path !== 'string' || !path) || new Set(model.packages).size !== model.packages.length) invalid('packages');
+            const paths = Object.keys(model.entities);
+            if (paths.some(path => !isCanonicalPath(path) || path === '/dem' || path.startsWith('/dem/'))) invalid('entity path');
+            const relationMembers = new Set();
+            for (const [path, entity] of Object.entries(model.entities)) {
+                if (!plain(entity) || !Array.isArray(entity.attributes) || !plain(entity.uniqueKeys) || !plain(entity.indexes) || !plain(entity.relations)) invalid('entity');
+                if (entity.primaryKey !== null && (!Array.isArray(entity.primaryKey) || !entity.primaryKey.length)) invalid('primary key');
+                const attributes = entity.attributes.map(attribute => attribute?.name);
+                if (attributes.some(name => typeof name !== 'string' || !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)) || new Set(attributes).size !== attributes.length) invalid('attributes');
+                for (const attribute of entity.attributes) {
+                    if (!plain(attribute) || typeof attribute.nullable !== 'boolean' || !plain(attribute.type) || typeof attribute.type.name !== 'string' || !attribute.type.name) invalid('type');
+                    if (attribute.type.params !== undefined && !plain(attribute.type.params)) invalid('type parameters');
+                    if (attribute.type.profile !== undefined && (!plain(attribute.type.profile) || !['uuid', 'int'].includes(attribute.type.profile.type))) invalid('type profile');
+                    if (attribute.generation !== undefined && typeof attribute.generation !== 'boolean') invalid('generation');
+                    if (attribute.generation && attribute.type.name !== 'identity') invalid('generation');
+                }
+                /** @param {any} names @returns {boolean} */
+                const has = names => Array.isArray(names) && names.length > 0 && names.every(name => attributes.includes(name)) && new Set(names).size === names.length;
+                if (Array.isArray(entity.primaryKey) && !has(entity.primaryKey)) invalid('primary key');
+                for (const [keyName, key] of Object.entries(entity.uniqueKeys)) if (!keyName || !has(key)) invalid('unique key');
+                for (const [indexName, index] of Object.entries(entity.indexes)) if (!indexName || !plain(index) || !has(index.attributes)) invalid('index');
+                for (const [relationName, relation] of Object.entries(entity.relations)) {
+                    if (!relationName || !plain(relation) || !has(relation.attributes) || !plain(relation.target) || !paths.includes(relation.target.path)) invalid('relation');
+                    const target = model.entities[relation.target.path];
+                    if (!Array.isArray(relation.target.attributes) || relation.target.attributes.length !== relation.attributes.length || relation.target.attributes.some(name => !target.attributes.some(attribute => attribute.name === name))) invalid('relation target');
+                    for (const name of relation.attributes) relationMembers.add(path + '\0' + name);
+                    for (const name of relation.target.attributes) relationMembers.add(relation.target.path + '\0' + name);
+                }
+            }
+            for (const [path, entity] of Object.entries(model.entities)) for (const attribute of entity.attributes) {
+                if (attribute.type.name === 'idb.CryptoKey' && (attribute.generation || [...(entity.primaryKey ?? []), ...Object.values(entity.uniqueKeys ?? {}).flat(), ...Object.values(entity.indexes ?? {}).flatMap(index => index.attributes ?? [])].includes(attribute.name) || relationMembers.has(path + '\0' + attribute.name))) invalid('CryptoKey projection');
+            }
+        };
+
+        /** @param {any} value @param {any} [seen] @returns {boolean} */
+        const jsonValue = (value, seen = new Set()) => {
+            if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+            if (typeof value === 'number') return Number.isFinite(value);
+            if (typeof value !== 'object' || seen.has(value)) return false;
+            if (!Array.isArray(value) && !plain(value)) return false;
+            seen.add(value);
+            const values = Array.isArray(value) ? value : Object.values(value);
+            const valid = values.every(item => jsonValue(item, seen));
+            seen.delete(value);
+            return valid;
+        };
+
+        /** @param {any} value @returns {boolean} */
+        const plain = value => value !== null && typeof value === 'object' && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null);
+
+        /** @param {any} store @param {string} kind */
+        const validateMetaStore = (store, kind) => {
+            if (store.keyPath !== (kind === 'schema' ? 'version' : null) || store.autoIncrement || store.indexNames.length)
+                throw new TypeError(`invalid ${kind} store definition`);
+        };
+
+        /** @param {any} rows @param {any} currentVersion @param {any} names @returns {any} */
+        const validateHistory = (rows, currentVersion, names) => {
+            if (!Array.isArray(rows) || !rows.length) throw new TypeError('schema history is empty');
+            const schemas = rows.map(row => {
+                if (!plain(row) || !Number.isSafeInteger(row.version) || row.version < 1 || row.layout !== 2) throw new TypeError('invalid schema snapshot');
+                validateModel(row.model);
+                const coverage = row.nativeLookup;
+                if (!plain(coverage) || Object.keys(coverage).some(path => !Object.hasOwn(row.model.entities, path)) || Object.entries(row.model.entities).some(([path]) => typeof coverage[path] !== 'boolean')) throw new TypeError('invalid native lookup metadata');
+                return {version: row.version, model: row.model, nativeLookup: coverage};
+            }).sort((a, b) => a.version - b.version);
+            if (new Set(schemas.map(row => row.version)).size !== schemas.length || schemas.at(-1).version !== currentVersion) throw new TypeError('history range does not match database version');
+            for (let i = 1; i < schemas.length; i++) {
+                if (schemas[i].version !== schemas[i - 1].version + 1) throw new TypeError('schema history contains a gap');
+                const previous = schemas[i - 1];
+                for (const [path, covered] of Object.entries(schemas[i].nativeLookup)) {
+                    if (!covered) continue;
+                    const before = previous.model.entities[path];
+                    const after = schemas[i].model.entities[path];
+                    if (before && !(previous.nativeLookup[path] && canonical(before.attributes) === canonical(after.attributes))) throw new TypeError('native lookup coverage is inconsistent');
+                    if (!before && covered && schemas.slice(0, i).some(row => Object.hasOwn(row.model.entities, path))) throw new TypeError('retained store regained native lookup coverage');
+                }
+            }
+            const allEntities = new Set(schemas.flatMap(row => Object.keys(row.model.entities)));
+            const expectedStores = new Set(['/dem/schema', '/dem/sequence', ...allEntities]);
+            if (names.some(name => !expectedStores.has(name))) throw errors.create({code: 'UNSUPPORTED', message: 'Storage contains an unexplained object store.'});
+            if ([...expectedStores].some(name => !names.includes(name))) throw new TypeError('physical store set does not match recorded source history');
+            return {snapshots: schemas, schemas: schemas.map(({version, model}) => ({version, model}))};
+        };
+
+        /** @param {any} snapshots @param {any} currentModel @param {any} names @param {any} storeDefinitions @param {any} counterKeys @param {any} counters @returns {void} */
+        const validatePhysicalLayout = (snapshots, currentModel, names, storeDefinitions, counterKeys, counters) => {
+            const sequenceStore = '/dem/sequence';
+            const retained = new Set(snapshots.flatMap(row => Object.keys(row.model.entities)));
+            for (const name of names.filter(name => name !== '/dem/schema' && name !== sequenceStore)) {
+                const containing = [...snapshots].reverse().find(row => Object.hasOwn(row.model.entities, name));
+                const definition = storeDefinitions[name];
+                if (!containing || !definition || definition.keyPath !== null || !definition.autoIncrement) throw new TypeError('invalid entity store definition');
+                const entity = containing.model.entities[name];
+                const expected = Object.fromEntries([
+                    ...(entity.primaryKey?.length ? [['primary', entity.primaryKey]] : []),
+                    ...Object.entries(entity.uniqueKeys ?? {}).map(([key, attributes]) => ['unique:' + key, attributes]),
+                    ...Object.entries(entity.indexes ?? {}).map(([key, index]) => ['index:' + key, index.attributes]),
+                ].filter(([, attributes]) => attributes.every(attribute => /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(attribute))));
+                if (definition.indexes.length !== Object.keys(expected).length) throw new TypeError('entity indexes do not match source projection');
+                for (const index of definition.indexes) {
+                    const attributes = expected[index.name];
+                    if (!attributes || canonical(index.keyPath) !== canonical(attributes) || index.unique || index.multiEntry) throw new TypeError('entity index does not match source projection');
+                }
+            }
+            if (!Array.isArray(counters) || !Array.isArray(counterKeys) || counters.length !== counterKeys.length) throw new TypeError('invalid counters');
+            for (let i = 0; i < counters.length; i++) {
+                const key = counterKeys[i], value = counters[i];
+                if (typeof key !== 'string' || !retained.has(key) || typeof value !== 'string' || !/^(0|[1-9][0-9]*)$/.test(value)) throw new TypeError('invalid sequence entry');
+            }
+            for (const entity of Object.values(currentModel.entities)) {
+                for (const attribute of entity.attributes) if (attribute.generation && attribute.type.name !== 'identity') throw new TypeError('unsupported generation policy');
+            }
         };
         /**
          * @param {object} deps
@@ -389,4 +660,4 @@ export default class Adapter {
         };
     }
 }
-export const __deps__ = Object.freeze({default: Object.freeze({errors:'TeqFw_Dem_Repository_Error$',normalize:'TeqFw_Dem_Repository_Normalize$',selection:'TeqFw_Dem_Dto_Query_Selection__Factory$',evaluate:'TeqFw_Dem_Repository_Select$',batch:'TeqFw_Dem_Repository_Batch$'})});
+export const __deps__ = Object.freeze({default: Object.freeze({errors:'TeqFw_Dem_Repository_Error$',normalize:'TeqFw_Dem_Repository_Normalize$',selection:'TeqFw_Dem_Dto_Query_Selection__Factory$',evaluate:'TeqFw_Dem_Repository_Select$',batch:'TeqFw_Dem_Repository_Batch$',demCanonical:'TeqFw_Dem_Compile_A_Canonical$',fingerprint:'TeqFw_Dem_Compile_A_Fingerprint$'})});

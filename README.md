@@ -71,7 +71,7 @@ Each operation uses a native transaction and reports a write result after commit
 
 ## Schema history and updates
 
-Each application object store is named exactly after its effective entity path (for example, `/app/user`). The reserved internal stores `/dem/schema` and `/dem/sequence` retain `{version, layout, model}` snapshots and integer allocation counters. Models that place entities in `/dem` or its subtree are rejected before IndexedDB access, including DEM-owned history entities. DEM-owned history is not yet implemented by this adapter. Entity records use private out-of-line auto-generated IndexedDB keys, independent of logical identities. Logical keys, declared indexes and relations are retained in the model. Valid native key paths get non-unique lookup indexes; native key restrictions do not prevent logical values from being stored or queried.
+Each application object store is named exactly after its effective entity path (for example, `/app/user`). The reserved internal stores `/dem/schema` and `/dem/sequence` retain `{version, layout, model, nativeLookup}` snapshots and integer allocation counters. Models that place entities in `/dem` or its subtree are rejected before IndexedDB access, including DEM-owned history entities. DEM-owned history is not yet implemented by this adapter. Entity records use private out-of-line auto-generated IndexedDB keys, independent of logical identities. Logical keys, declared indexes and relations are retained in the model. Valid native key paths get non-unique lookup indexes; native key restrictions do not prevent logical values from being stored or queried.
 
 The adapter deliberately does not support historical physical layouts such as `dem:/...`, `dem_schema` or `dem_sequence`. It rejects such databases before an upgrade and leaves their stores and data unchanged. The host owns any required migration; this package does not rename, copy, convert or delete historical data.
 
@@ -79,12 +79,12 @@ The adapter deliberately does not support historical physical layouts such as `d
 
 This is structural evolution, not automatic data migration. Added literal defaults and nullable values are applied when existing records are read. Removed attributes are omitted from logical results while raw stored values remain until a record is rewritten. Renames are new logical names; no rename or data conversion is inferred. Incompatible stored values fail as `STORAGE`. Newly declared keys and relations do not audit or rewrite existing data at schema-update time; subsequent writes check their applicable constraints. The host owns value migrations and backups. Initialization of incompatible pre-existing native stores fails without replacing them.
 
-Browser quota, eviction, user clearing, unexpected closure, upgrade blocking and durability differ from RDBMS. Storage errors are reported as `STORAGE`. There is no automatic browser/server synchronization, replication or shared transaction. Tested in Chrome 156; Firefox, Safari and workers have not been verified.
+Browser quota, eviction, user clearing, unexpected closure, upgrade blocking and durability differ from RDBMS. Storage errors are reported as `STORAGE`. There is no automatic browser/server synchronization, replication or shared transaction. Tested in Chrome 156 and Chromium 159; Firefox, Safari and workers have not been verified.
 
 ## Read-only storage inspection
 
-**Accepted contract. Implementation is pending.** Check that the installed
-adapter exposes `inspectStorage` before integrating this API.
+The adapter exposes `inspectStorage` for a read-only source observation before
+provider acquisition.
 
 Resolve `TeqFw_Dem_IDb_Adapter$` and call
 `await adapter.inspectStorage({name})`. The options object also accepts
