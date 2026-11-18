@@ -37,7 +37,7 @@ jobs:
       - name: Install dependencies
         run: npm install --ignore-scripts
 
-      - name: Run unit, type and real-browser verification
+      - name: Run unit and real-browser verification
         run: npm run verify
 
       - name: Check package contents

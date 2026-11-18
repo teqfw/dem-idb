@@ -23,6 +23,8 @@ and the historical IndexedDB physical layouts described below.
 The browser host registers served ESM namespace roots for `TeqFw_Dem_` and `TeqFw_Dem_IDb_` in its TeqFW container before resolving components. Browser module delivery and composition belong to the host.
 
 ```js
+const registry = await container.get('TeqFw_Dem_Registry$');
+registry.finalize();
 const compiler = await container.get('TeqFw_Dem_Compile$');
 const {model} = await compiler.exec({schemas: [{
     packageName: '@example/app',

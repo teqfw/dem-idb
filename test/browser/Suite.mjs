@@ -52,6 +52,36 @@ test('fresh database uses effective entity paths and reserved internal stores', 
     } finally {await env.close();}
 });
 
+test('storage inspection accepts DEM names outside IndexedDB key paths and validates inputs', async () => {
+    const schema = {$format:2,$namespace:'/app/',item:{attributes:[{name:'1id',type:{name:'text'}}],primaryKey:['1id']}};
+    const env = await open({schema});
+    try {
+        const repo = await env.provider.get({path:'/app/item'});
+        await repo.create({record:{'1id':'key'}});
+        assert.deepEqual((await repo.read({key:{kind:'primary',values:{'1id':'key'}}})).record,{'1id':'key'});
+        assert.equal((await adapter.inspectStorage({name:env.name,expectedModel:env.model})).matchesExpected,true);
+        const malformed = structuredClone(env.model);
+        malformed.packages.push('not-a-package-path');
+        await assert.rejects(adapter.inspectStorage({name:env.name,expectedModel:malformed}),{code:'INVALID_INPUT'});
+        const tx = env.initialized.database.transaction('/dem/schema','readwrite');
+        const store = tx.objectStore('/dem/schema');
+        const request = store.get(1);
+        request.onsuccess = () => store.put({...request.result,layout:9});
+        await new Promise((resolve,reject) => { tx.oncomplete=resolve; tx.onabort=()=>reject(tx.error); });
+        await assert.rejects(adapter.inspectStorage({name:env.name}),{code:'UNSUPPORTED'});
+    } finally { await env.close(); }
+});
+
+test('storage inspection rejects unavailable, failed and ambiguous inventories', async () => {
+    const name = 'dem-idb-inventory-' + ++sequence;
+    await assert.rejects(adapter.inspectStorage({name,indexedDB:{open(){}}}),{code:'UNSUPPORTED'});
+    await assert.rejects(adapter.inspectStorage({name,indexedDB:{open(){},databases:async()=>{throw new Error('inventory failed');}}}),{code:'STORAGE'});
+    let opens = 0;
+    const factory = {databases:async()=>[{name,version:1},{name,version:1}],open(){opens++;}};
+    await assert.rejects(adapter.inspectStorage({name,indexedDB:factory}),{code:'STORAGE'});
+    assert.equal(opens,0);
+});
+
 test('storage inspection distinguishes absent and existing storage without writes', async () => {
     const absentName = 'dem-idb-inspect-absent-' + ++sequence;
     let openCalls = 0;
@@ -124,6 +154,130 @@ test('storage inspection reports source history and physically retained stores',
         try { assert.ok(db.objectStoreNames.contains('/app/item')); }
         finally { db.close(); }
     } finally { await env.close(); }
+});
+
+test('storage inspection detects deletion after inventory without recreating the database', async () => {
+    const env = await open({schema:simple});
+    await env.provider.close();
+    const factory = {
+        async databases() {
+            const inventory = await indexedDB.databases();
+            await remove(env.name);
+            return inventory;
+        },
+        open: name => indexedDB.open(name),
+    };
+    await assert.rejects(adapter.inspectStorage({name:env.name,indexedDB:factory}),{code:'STORAGE'});
+    assert.equal((await indexedDB.databases()).some(row => row.name === env.name),false);
+});
+
+test('storage inspection closes a connection opened after a blocked rejection', async () => {
+    const env = await open({schema:simple});
+    await env.provider.close();
+    let lateOpen;
+    const finished = new Promise(resolve => { lateOpen = resolve; });
+    const factory = {
+        databases: () => indexedDB.databases(),
+        open(name) {
+            const request = indexedDB.open(name);
+            const proxy = new Proxy(request, {
+                get(target,key) {
+                    const value = Reflect.get(target,key,target);
+                    return typeof value === 'function' ? value.bind(target) : value;
+                },
+                set(target,key,value) {
+                    if (key === 'onsuccess') return Reflect.set(target,key,event => { value(event); lateOpen(); },target);
+                    return Reflect.set(target,key,value,target);
+                },
+            });
+            queueMicrotask(() => request.onblocked?.());
+            return proxy;
+        },
+    };
+    await assert.rejects(adapter.inspectStorage({name:env.name,indexedDB:factory}),{code:'STORAGE'});
+    await finished;
+    await remove(env.name);
+    assert.equal((await indexedDB.databases()).some(row => row.name === env.name),false);
+});
+
+test('storage inspection abandons reads on version change and abnormal close', async () => {
+    for (const event of ['onversionchange','onclose']) {
+        const env = await open({schema:simple});
+        const factory = {
+            databases: () => indexedDB.databases(),
+            open(name) {
+                const request = indexedDB.open(name);
+                return new Proxy(request, {
+                    get(target,key) {
+                        if (key === 'result' && target.readyState === 'done' && target.result) {
+                            const db = target.result;
+                            return new Proxy(db, {
+                                get(database,property) {
+                                    if (property === 'transaction') return (...args) => {
+                                        const tx = database.transaction(...args);
+                                        queueMicrotask(() => database[event]?.(new Event(event.slice(2))));
+                                        return tx;
+                                    };
+                                    const value = Reflect.get(database,property,database);
+                                    return typeof value === 'function' ? value.bind(database) : value;
+                                },
+                                set(database,property,value) { return Reflect.set(database,property,value,database); },
+                            });
+                        }
+                        const value = Reflect.get(target,key,target);
+                        return typeof value === 'function' ? value.bind(target) : value;
+                    },
+                    set(target,key,value) { return Reflect.set(target,key,value,target); },
+                });
+            },
+        };
+        try { await assert.rejects(adapter.inspectStorage({name:env.name,indexedDB:factory}),{code:'STORAGE'}); }
+        finally { await env.close(); }
+    }
+});
+
+test('storage inspection rejects damaged counters and history without changing data', async () => {
+    for (const damage of ['counter','history']) {
+        const env = await open({schema:simple});
+        try {
+            const repo = await env.provider.get({path:'/app/item'});
+            await repo.create({record:{name:'preserved'}});
+            const db = env.initialized.database;
+            const tx = db.transaction(damage === 'counter' ? '/dem/sequence' : '/dem/schema','readwrite');
+            if (damage === 'counter') tx.objectStore('/dem/sequence').put('01','/app/item');
+            else tx.objectStore('/dem/schema').delete(1);
+            await new Promise((resolve,reject) => {tx.oncomplete=resolve; tx.onabort=()=>reject(tx.error);});
+            await assert.rejects(adapter.inspectStorage({name:env.name,expectedModel:env.model}),{code:'STORAGE'});
+            await assert.rejects(adapter.inspectStorage({name:env.name}),{code:'STORAGE'});
+            const read = db.transaction('/app/item','readonly').objectStore('/app/item').getAll();
+            const records = await new Promise((resolve,reject) => {read.onsuccess=()=>resolve(read.result); read.onerror=()=>reject(read.error);});
+            assert.deepEqual(records,[{id:'1',name:'preserved'}]);
+            assert.equal(db.version,1);
+        } finally { await env.close(); }
+    }
+});
+
+test('storage inspection rejects an incompatible native index', async () => {
+    const env = await open({schema:simple});
+    await env.provider.close();
+    const db = await new Promise((resolve,reject) => {
+        const request = indexedDB.open(env.name,2);
+        request.onupgradeneeded = () => {
+            const store = request.transaction.objectStore('/app/item');
+            store.deleteIndex('primary');
+            store.createIndex('primary',['name']);
+            const history = request.transaction.objectStore('/dem/schema');
+            const previous = history.get(1);
+            previous.onsuccess = () => history.put({...previous.result,version:2});
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+    });
+    db.close();
+    try {
+        await assert.rejects(adapter.inspectStorage({name:env.name,expectedModel:env.model}),{code:'STORAGE'});
+        await assert.rejects(adapter.inspectStorage({name:env.name}),{code:'STORAGE'});
+    } finally { await remove(env.name); }
 });
 
 test('storage inspection rejects damaged metadata and aborted readonly probes', async () => {

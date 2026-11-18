@@ -1,5 +1,12 @@
 # Release Notes
 
+## 2.1.0 — 2026-11-18
+
+- Accept all DEM attribute names during storage inspection, including names that cannot be used in native index key paths.
+- Validate expected model package paths and report unsupported storage layout revisions distinctly.
+- Expand browser coverage of inspection races, damaged metadata and connection cleanup.
+- Clarify browser Registry initialization in the integration example.
+
 ## 2.0.0 — 2026-11-18
 
 - Require DEM ^2.0.0 and Format 2 schemas.

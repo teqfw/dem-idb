@@ -206,7 +206,7 @@ export default class Adapter {
             /** @param {string} message @returns {void} */
             const invalid = message => { throw new TypeError(message); };
             if (!jsonValue(model) || !plain(model) || !plain(model.entities) || !Object.keys(model.entities).length || !Object.hasOwn(model, 'packages')) invalid('entities');
-            if (!Array.isArray(model.packages) || model.packages.some(path => typeof path !== 'string' || !path) || new Set(model.packages).size !== model.packages.length) invalid('packages');
+            if (!Array.isArray(model.packages) || model.packages.some(path => typeof path !== 'string' || !/^\/(?:[a-z][a-z0-9]*\/)*$/.test(path)) || new Set(model.packages).size !== model.packages.length) invalid('packages');
             const paths = Object.keys(model.entities);
             if (paths.some(path => !isCanonicalPath(path) || path === '/dem' || path.startsWith('/dem/'))) invalid('entity path');
             const relationMembers = new Set();
@@ -214,7 +214,7 @@ export default class Adapter {
                 if (!plain(entity) || !Array.isArray(entity.attributes) || !plain(entity.uniqueKeys) || !plain(entity.indexes) || !plain(entity.relations)) invalid('entity');
                 if (entity.primaryKey !== null && (!Array.isArray(entity.primaryKey) || !entity.primaryKey.length)) invalid('primary key');
                 const attributes = entity.attributes.map(attribute => attribute?.name);
-                if (attributes.some(name => typeof name !== 'string' || !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)) || new Set(attributes).size !== attributes.length) invalid('attributes');
+                if (attributes.some(name => typeof name !== 'string' || !/^[a-z0-9_]+$/.test(name)) || new Set(attributes).size !== attributes.length) invalid('attributes');
                 for (const attribute of entity.attributes) {
                     if (!plain(attribute) || typeof attribute.nullable !== 'boolean' || !plain(attribute.type) || typeof attribute.type.name !== 'string' || !attribute.type.name) invalid('type');
                     if (attribute.type.params !== undefined && !plain(attribute.type.params)) invalid('type parameters');
@@ -266,7 +266,8 @@ export default class Adapter {
         const validateHistory = (rows, currentVersion, names) => {
             if (!Array.isArray(rows) || !rows.length) throw new TypeError('schema history is empty');
             const schemas = rows.map(row => {
-                if (!plain(row) || !Number.isSafeInteger(row.version) || row.version < 1 || row.layout !== 2) throw new TypeError('invalid schema snapshot');
+                if (!plain(row) || !Number.isSafeInteger(row.version) || row.version < 1 || !Object.hasOwn(row, 'layout')) throw new TypeError('invalid schema snapshot');
+                if (row.layout !== 2) throw errors.create({code: 'UNSUPPORTED', message: 'Storage inspection found an unsupported schema layout.'});
                 validateModel(row.model);
                 const coverage = row.nativeLookup;
                 if (!plain(coverage) || Object.keys(coverage).some(path => !Object.hasOwn(row.model.entities, path)) || Object.entries(row.model.entities).some(([path]) => typeof coverage[path] !== 'boolean')) throw new TypeError('invalid native lookup metadata');
