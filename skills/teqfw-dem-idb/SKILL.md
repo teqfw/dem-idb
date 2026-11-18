@@ -5,7 +5,7 @@ description: Integrate the TeqFW DEM IndexedDB adapter into a browser host.
 
 # DEM IndexedDB adapter
 
-Read the package README for the current API, schema-update behavior, capabilities and limitations. DEM compiles JSON declarations; this adapter consumes the effective model. Register the DEM and DEM-IDB browser namespace roots before resolution. Initialize with `Adapter.open({model,name})` followed by explicit `createSchema()`.
+Read the package README for the current API, schema-update behavior, capabilities and limitations. DEM compiles JSON declarations; this adapter consumes the effective model. Register the DEM and DEM-IDB browser namespace roots before resolution. For deliberate initialization, configure `Adapter.open({model,name})` and call `createSchema()` explicitly.
 
 DEM schema descriptors use Format 2. Legacy Format 1 schema descriptors are
 intentionally rejected without a compatibility mode; host maps remain Format 1.
@@ -37,6 +37,31 @@ structural upgrades. All-core comparisons and keyless ordering follow DEM, inclu
 byte ordering, numeric vector lexicographic order and canonical JSON representation
 order. Async callbacks and schema commands are outside atomic data batches.
 
+
+## Inspect before selecting a storage transition
+
+The accepted `Adapter.inspectStorage({name, indexedDB?, expectedModel?})` contract
+awaits implementation. Verify availability in the installed adapter. It requires
+`IDBFactory.databases()` and runs before provider access, without a source Runtime.
+
+- `kind: 'absent'` records absence in a successful inventory. Use explicit
+  initialization only under the host's storage coordination.
+- `kind: 'existing'` supplies `version`, `model`, DEM logical `fingerprint`,
+  ascending structural `schemas` entries and `matchesExpected`. The comparison
+  is `null` if omitted. Otherwise use it as the exact adapter comparison.
+  A matching logical fingerprint alone cannot establish adapter equality.
+  A valid different source can be considered for an explicitly supported direct
+  transition. Pass that transition's known source as `expectedModel` when exact
+  adapter equality is required.
+- Treat `INVALID_INPUT`, `UNSUPPORTED` and `STORAGE` as failures. Never fall back
+  to initialization on a rejected probe.
+
+The adapter validates structural history and physical projection without
+writing storage. Use the public result and leave store, index, coverage and
+counter interpretation to the adapter. The host maintains exclusion across
+inspection, migration and activation, including stale clients, and verifies
+application values and invariants. The observation itself supplies no lock,
+data validation or guarantee against a concurrent replacement.
 
 ## Native CryptoKey integration
 

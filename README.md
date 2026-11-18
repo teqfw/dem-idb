@@ -81,6 +81,46 @@ This is structural evolution, not automatic data migration. Added literal defaul
 
 Browser quota, eviction, user clearing, unexpected closure, upgrade blocking and durability differ from RDBMS. Storage errors are reported as `STORAGE`. There is no automatic browser/server synchronization, replication or shared transaction. Tested in Chrome 156; Firefox, Safari and workers have not been verified.
 
+## Read-only storage inspection
+
+**Accepted contract. Implementation is pending.** Check that the installed
+adapter exposes `inspectStorage` before integrating this API.
+
+Resolve `TeqFw_Dem_IDb_Adapter$` and call
+`await adapter.inspectStorage({name})`. The options object also accepts
+`indexedDB` and `expectedModel`.
+The optional factory defaults to the browser global and must support
+`IDBFactory.databases()`. The optional `expectedModel` is a compiled Effective DEM.
+Inspection runs before provider acquisition and needs no source model or Runtime.
+
+- `{kind: 'absent'}` means the name was absent from a successful inventory of the
+  selected storage partition. Inspection issues no open for this outcome.
+- `{kind: 'existing', version, model, fingerprint, schemas, matchesExpected}`
+  reports the native version, observed Effective DEM, DEM logical fingerprint,
+  and the recorded structural snapshots as ascending `{version, model}` entries.
+  Success validates the source layout and structural metadata. The returned
+  history may start above version 1. `matchesExpected` is `true` or `false` for
+  exact adapter model equality and `null` when no expectation was supplied.
+  A valid different source is a successful result. Equal logical fingerprints
+  can still compare different for adapter access because the fingerprint excludes
+  presentation details such as attribute projection order and empty packages.
+- Rejections use `DemRepositoryError`. `INVALID_INPUT` means invalid input.
+  `UNSUPPORTED` covers unavailable inspection capability and unrecognized or
+  obsolete storage. `STORAGE` covers inconsistent supported-layout evidence,
+  blocked or aborted observations and other storage uncertainty. A failure
+  provides no basis for initializing storage.
+
+Inspection aborts attempts to create or upgrade during a probe and closes
+its connections. It performs no schema, history, record or counter writes.
+Use its evidence under host-controlled exclusion to choose fresh initialization,
+ordinary compatible access or a supported direct host migration. Exclude stale
+clients through transition, verification and activation. A separate inspection
+describes one observation and cannot fence other clients or detect all
+delete/recreate races. Structural compatibility and history establish no
+guarantee of domain invariants, value readability or conversion success.
+The host owns those checks and any migration. Provider access and explicit
+schema initialization retain their existing contracts.
+
 ## Development
 
 Install dependencies before running checks. This release uses `@teqfw/dem` 2.x. Node.js runs the test harness; Chrome supplies real IndexedDB. Set `CHROME_PATH` if needed.
