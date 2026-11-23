@@ -11,11 +11,14 @@ The adapter creates one object store per effective entity, native non-unique loo
 ## Installation
 
 ```sh
-npm install @teqfw/dem@^2.0.0 @teqfw/dem-idb@^2.0.0 @teqfw/di@^2.11.0
+npm install @teqfw/dem@^2.1.0 @teqfw/dem-idb@^2.2.0 @teqfw/di@^2.11.0
 ```
 
+This release requires the published `@teqfw/dem` package at `^2.1.0`, which
+includes the relation-action compiler support used by the adapter.
+
 The browser host serves the installed DEM, DEM-IDB and DI ESM modules and registers
-their namespace roots. Version 2.x requires DEM 2.x and rejects Format 1 schemas
+their namespace roots. Version 2.2 requires DEM `^2.1.0` and rejects Format 1 schemas
 and the historical IndexedDB physical layouts described below.
 
 ## Initialize a model
@@ -124,7 +127,7 @@ schema initialization retain their existing contracts.
 
 ## Development
 
-Install dependencies before running checks. This release uses `@teqfw/dem` 2.x. Node.js runs the test harness; Chrome supplies real IndexedDB. Set `CHROME_PATH` if needed.
+Install dependencies before running checks. This release uses `@teqfw/dem` `^2.1.0`. Node.js runs the test harness; Chrome supplies real IndexedDB. Set `CHROME_PATH` if needed.
 
 ```sh
 npm run verify

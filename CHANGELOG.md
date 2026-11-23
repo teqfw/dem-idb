@@ -1,5 +1,12 @@
 # Release Notes
 
+## 2.2.0 — 2026-11-23
+
+- Enforce DEM-declared delete and referenced-key update actions atomically in IndexedDB, including ordered batches and cascade-updated results.
+- Reject conflicting cascade plans without changing stored records; retain `restrict` as the omitted-action default.
+- Expand real-browser coverage for relation actions, cascade conflicts, and enum case/nullability constraints.
+- Require the published `@teqfw/dem` `^2.1.0` compiler for relation-action support.
+
 ## 2.1.0 — 2026-11-18
 
 - Accept all DEM attribute names during storage inspection, including names that cannot be used in native index key paths.

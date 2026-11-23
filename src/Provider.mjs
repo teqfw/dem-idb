@@ -11,7 +11,9 @@ export default class Provider {
      * @param {any} deps.errors
      */
     constructor({adapter,configuration,errors}) {
-        let pending,closed=false;
+        /** @type {Promise<any>|undefined} */
+        let pending;
+        let closed=false;
         /** @returns {Promise<any>} */
         const backend=async function () {
             if (closed) throw errors.create({code:'STORAGE',message:'Provider is closed.'});

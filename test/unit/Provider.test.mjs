@@ -2,15 +2,19 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import Provider from '../../src/Provider.mjs';
 
+/** @type {any} */
+const errors = {create: (/** @type {{code: string; message: string}} */ {code,message}) => Object.assign(new Error(message),{code})};
+
 test('shares one configuration and adapter opening between concurrent resolutions', async () => {
     let configurations = 0;
     let openings = 0;
     const provider = new Provider({
+        errors,
         configuration: {get: async () => { configurations++; return {name: 'host'}; }},
-        adapter: {open: async options => {
+        adapter: {open: async (/** @type {any} */ options) => {
             openings++;
             assert.deepEqual(options, {name: 'host'});
-            return {get: async params => params.path};
+            return {get: async (/** @type {any} */ params) => params.path};
         }},
     });
     assert.deepEqual(await Promise.all([provider.get({path: '/a'}), provider.get({path: '/b'})]), ['/a', '/b']);
@@ -20,7 +24,7 @@ test('shares one configuration and adapter opening between concurrent resolution
 
 test('propagates configuration failures without opening an adapter', async () => {
     const failure = new Error('missing configuration');
-    const provider = new Provider({configuration: {get: async () => { throw failure; }}, adapter: {open: () => assert.fail('unexpected open')}});
+    const provider = new Provider({errors,configuration: {get: async () => { throw failure; }}, adapter: {open: () => assert.fail('unexpected open')}});
     await assert.rejects(provider.get({path: '/a'}), error => error === failure);
 });
 
@@ -28,7 +32,7 @@ test('propagates configuration failures without opening an adapter', async () =>
 test('closing a provider releases its backend and prevents reopening', async () => {
     let closes = 0;
     const provider = new Provider({
-        errors: {create: ({code,message}) => Object.assign(new Error(message),{code})},
+        errors,
         configuration: {get: async () => ({})},
         adapter: {open: async () => ({get: async () => ({}), close: async () => { closes++; }})},
     });
@@ -41,7 +45,7 @@ test('closing a provider releases its backend and prevents reopening', async () 
 
 test('single and batch calls share the same configured backend',async()=>{
     let openings=0;
-    const provider=new Provider({configuration:{get:async()=>({})},adapter:{open:async()=>{openings++;return {get:async()=> 'single',execute:async()=> 'batch'};}}});
+    const provider=new Provider({errors,configuration:{get:async()=>({})},adapter:{open:async()=>{openings++;return {get:async()=> 'single',execute:async()=> 'batch'};}}});
     assert.deepEqual(await Promise.all([provider.get({path:'/a'}),provider.execute({operations:[]})]),['single','batch']);
     assert.equal(openings,1);
 });

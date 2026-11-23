@@ -4,14 +4,15 @@ import Container from '/di/dist/esm.js';
 /** Host-owned configuration, initialized before application resolution. */
 export class Configuration {
     constructor() {
+        /** @type {any} */
         let options;
-        this.set = value => { options = value; };
+        this.set = (/** @type {any} */ value) => { options = value; };
         this.get = async () => { if (!options) throw new Error('Host is not configured.'); return options; };
     }
 }
 /** Select the provider implementation and host configuration through DI. */
 export function Preprocessor() {
-    return id => id.address === 'TeqFw_Dem_Api_RepositoryProvider'
+    return (/** @type {{address: string}} */ id) => id.address === 'TeqFw_Dem_Api_RepositoryProvider'
         ? {...id, address: 'TeqFw_Dem_IDb_Provider'}
         : id.address === 'TeqFw_Dem_IDb_Api_Configuration'
             ? {...id, address: 'Host_Browser', exportName: 'Configuration'} : id;

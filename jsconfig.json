@@ -8,21 +8,19 @@
     "skipLibCheck": true,
     "strict": true,
     "target": "ESNext",
-    "types": [
-      "node"
-    ]
+    "types": ["node"]
   },
   "include": [
-    "bin",
     "src",
     "test",
     "types.d.ts",
-    "node_modules/@teqfw",
-    "src/**/*.mjs",
-    "test/types.ts"
+    "node_modules/@flancer32/**/*.mjs",
+    "node_modules/@flancer32/**/types.d.ts",
+    "node_modules/@teqfw/**/*.mjs",
+    "node_modules/@teqfw/**/types.d.ts"
   ],
   "exclude": [
     "ctx",
-    "node_modules/@teqfw/**/*.js"
+    "node_modules/**/*.js"
   ]
 }

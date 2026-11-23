@@ -1,17 +1,25 @@
 import {run as runApplication} from './application/Browser.mjs';
 import Container from '/di/dist/esm.js';
 
+/** @type {{name: string; body: () => Promise<void>}[]} */
 const cases = [];
+/** @param {string} name @param {() => Promise<void>} body */
 const test = (name, body) => cases.push({name, body});
+/** @param {any} value @returns {string} */
 const canon = value => JSON.stringify(value, (_k,v) => v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.keys(v).sort().map(k => [k,v[k]])) : v);
 const assert = {
+    /** @param {any} a @param {any} b */
     equal: (a,b) => { if (a !== b) throw new Error(`Expected ${canon(b)}, received ${canon(a)}`); },
+    /** @param {any} a @param {any} b */
     deepEqual: (a,b) => { if (canon(a) !== canon(b)) throw new Error(`Expected ${canon(b)}, received ${canon(a)}`); },
+    /** @param {string} a @param {RegExp} b */
     match: (a,b) => { if (!b.test(a)) throw new Error(`Pattern mismatch: ${a}`); },
+    /** @param {any} value */
     ok: value => { if (!value) throw new Error('Expected truthy value'); },
+    /** @param {Promise<any>} promise @param {any} expected */
     rejects: async (promise, expected) => {
         try { await promise; } catch (error) {
-            if (typeof expected === 'function' ? expected(error) : Object.entries(expected).every(([k,v]) => error[k] === v)) return;
+            if (typeof expected === 'function' ? expected(error) : Object.entries(expected).every(([k,v]) => /** @type {any} */ (error)[k] === v)) return;
             throw error;
         }
         throw new Error('Expected rejection');
@@ -31,8 +39,31 @@ const {schema:atomicSchema,exercise:exerciseAtomic}=await container.get('TeqFw_D
 const {schema:extendedSchema,exercise:exerciseExtended}=await container.get('TeqFw_Dem_Conformance_Extended$');
 const {exercise:exerciseEvolution}=await container.get('TeqFw_Dem_Conformance_Evolution$');
 let sequence = 0;
-const compile = async schema => (await compiler.exec({schemas:[{packageName:'test',filename:'schema.json',document:schema}]})).model;
+/** @param {any} schema */
+const compile = async schema => {
+    try {
+        return (await compiler.exec({schemas:[{packageName:'test',filename:'schema.json',document:schema}]})).model;
+    } catch (error) {
+        const failure = /** @type {any} */ (error);
+        const diagnostics = /** @type {any[]} */ (failure.diagnostics ?? []);
+        const actionDiagnostics = diagnostics.filter((/** @type {any} */ diagnostic) =>
+            diagnostic.code === 'DEM_FORMAT'
+            && diagnostic.details?.unknown?.some((/** @type {any} */ field) => field === 'onDelete' || field === 'onUpdate'));
+        if (actionDiagnostics.length) {
+            const fields = [...new Set(actionDiagnostics.flatMap((/** @type {any} */ diagnostic) =>
+                diagnostic.details.unknown.filter((/** @type {any} */ field) => field === 'onDelete' || field === 'onUpdate')))].join(', ');
+            const paths = actionDiagnostics.map((/** @type {any} */ diagnostic) => diagnostic.pointer).join(', ');
+            throw Object.assign(new Error(
+                `Installed @teqfw/dem compiler rejected required relation-action fields (${fields}) at ${paths}. `
+                + 'Use a DEM revision with relation-action support; removing these fields would stop testing the accepted cascade contract.'
+            ), {diagnostics: failure.diagnostics});
+        }
+        throw error;
+    }
+};
+/** @param {string} name */
 const remove = name => new Promise((resolve,reject) => { const req = indexedDB.deleteDatabase(name); req.onsuccess = resolve; req.onerror = () => reject(req.error); });
+/** @param {{schema: any; enforceRelations?: boolean}} input */
 const open = async ({schema, enforceRelations = true}) => {
     const model = await compile(schema), name = 'dem-idb-test-' + ++sequence;
     const provider = await adapter.open({model,name,enforceRelations});
@@ -40,7 +71,9 @@ const open = async ({schema, enforceRelations = true}) => {
     return {provider,model,name,initialized,selection,close:async () => { await provider.close(); await remove(name); }};
 };
 register({test,assert,open});
+/** @type {any} */
 const simple = {$format:2,$namespace:'/app/',item:{attributes:[{name:'id',type:{name:'identity'},generation:true},{name:'name',type:{name:'text'}}]}};
+/** @param {any} id */
 const key = id => ({kind:'primary',values:{id}});
 
 test('fresh database uses effective entity paths and reserved internal stores', async () => {
@@ -85,7 +118,7 @@ test('storage inspection rejects unavailable, failed and ambiguous inventories',
 test('storage inspection distinguishes absent and existing storage without writes', async () => {
     const absentName = 'dem-idb-inspect-absent-' + ++sequence;
     let openCalls = 0;
-    const factory = {databases: () => indexedDB.databases(), open: (...args) => { openCalls++; return indexedDB.open(...args); }};
+    const factory = {databases: () => indexedDB.databases(), open: (/** @type {string} */ name, /** @type {number|undefined} */ version) => { openCalls++; return version === undefined ? indexedDB.open(name) : indexedDB.open(name, version); }};
     assert.deepEqual(await adapter.inspectStorage({name:absentName,indexedDB:factory}),{kind:'absent'});
     assert.equal(openCalls,0);
     assert.equal((await indexedDB.databases()).some(entry => entry.name === absentName),false);
@@ -143,7 +176,7 @@ test('storage inspection reports source history and physically retained stores',
         const observed = await adapter.inspectStorage({name:env.name,expectedModel:await compile(reduced)});
         const after = await indexedDB.databases();
         assert.equal(observed.matchesExpected,true);
-        assert.deepEqual(observed.schemas.map(row=>row.version),[1,2,3]);
+        assert.deepEqual(observed.schemas.map((/** @type {any} */ row)=>row.version),[1,2,3]);
         assert.deepEqual(observed.model,await compile(reduced));
         assert.deepEqual(after,before);
         const db = await new Promise((resolve,reject) => {
@@ -165,7 +198,7 @@ test('storage inspection detects deletion after inventory without recreating the
             await remove(env.name);
             return inventory;
         },
-        open: name => indexedDB.open(name),
+        open: (/** @type {string} */ name) => indexedDB.open(name),
     };
     await assert.rejects(adapter.inspectStorage({name:env.name,indexedDB:factory}),{code:'STORAGE'});
     assert.equal((await indexedDB.databases()).some(row => row.name === env.name),false);
@@ -174,11 +207,13 @@ test('storage inspection detects deletion after inventory without recreating the
 test('storage inspection closes a connection opened after a blocked rejection', async () => {
     const env = await open({schema:simple});
     await env.provider.close();
+    /** @type {() => void} */
     let lateOpen;
-    const finished = new Promise(resolve => { lateOpen = resolve; });
+    /** @type {Promise<void>} */
+    const finished = new Promise(resolve => { lateOpen = () => resolve(undefined); });
     const factory = {
         databases: () => indexedDB.databases(),
-        open(name) {
+        open(/** @type {string} */ name) {
             const request = indexedDB.open(name);
             const proxy = new Proxy(request, {
                 get(target,key) {
@@ -190,7 +225,7 @@ test('storage inspection closes a connection opened after a blocked rejection', 
                     return Reflect.set(target,key,value,target);
                 },
             });
-            queueMicrotask(() => request.onblocked?.());
+            queueMicrotask(() => /** @type {any} */ (request).onblocked?.());
             return proxy;
         },
     };
@@ -205,7 +240,7 @@ test('storage inspection abandons reads on version change and abnormal close', a
         const env = await open({schema:simple});
         const factory = {
             databases: () => indexedDB.databases(),
-            open(name) {
+            open(/** @type {string} */ name) {
                 const request = indexedDB.open(name);
                 return new Proxy(request, {
                     get(target,key) {
@@ -213,9 +248,9 @@ test('storage inspection abandons reads on version change and abnormal close', a
                             const db = target.result;
                             return new Proxy(db, {
                                 get(database,property) {
-                                    if (property === 'transaction') return (...args) => {
-                                        const tx = database.transaction(...args);
-                                        queueMicrotask(() => database[event]?.(new Event(event.slice(2))));
+                                    if (property === 'transaction') return (/** @type {any} */ storeNames, /** @type {any} */ mode) => {
+                                        const tx = database.transaction(/** @type {any} */ (storeNames), /** @type {any} */ (mode));
+                                        queueMicrotask(() => /** @type {any} */ (database)[event]?.(new Event(event.slice(2))));
                                         return tx;
                                     };
                                     const value = Reflect.get(database,property,database);
@@ -263,10 +298,12 @@ test('storage inspection rejects an incompatible native index', async () => {
     const db = await new Promise((resolve,reject) => {
         const request = indexedDB.open(env.name,2);
         request.onupgradeneeded = () => {
-            const store = request.transaction.objectStore('/app/item');
+            const transaction = request.transaction;
+            if (!transaction) throw new Error('Upgrade transaction is missing.');
+            const store = transaction.objectStore('/app/item');
             store.deleteIndex('primary');
             store.createIndex('primary',['name']);
-            const history = request.transaction.objectStore('/dem/schema');
+            const history = transaction.objectStore('/dem/schema');
             const previous = history.get(1);
             previous.onsuccess = () => history.put({...previous.result,version:2});
         };
@@ -304,7 +341,8 @@ test('storage inspection rejects damaged metadata and aborted readonly probes', 
     const blockedFactory = {
         databases: () => indexedDB.databases(),
         open() {
-            const request = {};
+        /** @type {any} */
+        const request = {};
             queueMicrotask(() => request.onblocked?.());
             return request;
         },
@@ -315,15 +353,15 @@ test('storage inspection rejects damaged metadata and aborted readonly probes', 
     const abortEnv = await open({schema:simple});
     const abortingFactory = {
         databases: () => indexedDB.databases(),
-        open(name, version) {
+        open(/** @type {string} */ name, /** @type {number|undefined} */ version) {
             const request=version === undefined ? indexedDB.open(name) : indexedDB.open(name,version);
             return new Proxy(request,{
                 get(target,key) {
                     if (key === 'result' && target.readyState === 'done' && target.result) {
                         const db=target.result;
                         return new Proxy(db,{get(database,property) {
-                            if (property === 'transaction') return (...args) => {
-                                const transaction=database.transaction(...args);
+                            if (property === 'transaction') return (/** @type {any} */ storeNames, /** @type {any} */ mode) => {
+                                const transaction=database.transaction(storeNames,mode);
                                 queueMicrotask(()=>{try { transaction.abort(); } catch {}});
                                 return transaction;
                             };
@@ -506,7 +544,7 @@ test('DEM relation actions cascade key updates and deletes per command', async (
 
 test('composite relation actions handle null members, multilevel cascades and batch rollback', async () => {
     const cascade = {onDelete:'cascade',onUpdate:'cascade'};
-    const node = (target,nullable) => ({
+    const node = (/** @type {string|null} */ target, /** @type {boolean} */ nullable) => ({
         attributes:[
             {name:'id',type:{name:'integer'}},
             {name:'code',type:{name:'text'},nullable},
@@ -638,7 +676,7 @@ test('Unicode scalar ordering, null placement and zero limit', async () => {
         const repo = await env.provider.get({path:'/app/item'});
         for (const name of ['\u{10000}','\ue000','a','A',null]) await repo.create({record:{name}});
         const result = await repo.list({selection:{orderBy:[{attribute:'name',direction:'asc',nulls:'first'}]}});
-        assert.deepEqual(result.records.map(x => x.name),[null,'A','a','\ue000','\u{10000}']);
+        assert.deepEqual(result.records.map((/** @type {any} */ x) => x.name),[null,'A','a','\ue000','\u{10000}']);
         assert.deepEqual(await repo.list({selection:{limit:0}}),{records:[]});
     } finally { await env.close(); }
 });
@@ -703,7 +741,7 @@ test('provider rejects a different current model without modifying stored data',
 
 test('blocked upgrades reject and do not apply after the blocker closes', async () => {
     const env = await open({schema:simple}); let other, upgradeFinished;
-    const trackedIndexedDB = {open(name, version) {
+    const trackedIndexedDB = {open(/** @type {string} */ name, /** @type {number|undefined} */ version) {
         const request = version === undefined ? indexedDB.open(name) : indexedDB.open(name, version);
         if (version !== undefined) upgradeFinished = new Promise(resolve => request.addEventListener('error', resolve, {once:true}));
         return request;
@@ -763,8 +801,8 @@ test('native key and equality lookup avoid full scans, with non-keyable JSON/boo
         const repo=await env.provider.get({path:'/app/item'});
         const a=(await repo.create({record:{name:'Ada',flag:true,payload:{n:1}}})).record;
         await repo.create({record:{name:'B',flag:false,payload:{n:2}}});
-        IDBObjectStore.prototype.getAll=function (...args) {if(this.name===env.initialized.stores['/app/item']) scans++;return originalStore.apply(this,args);};
-        IDBIndex.prototype.getAll=function (...args) {indexReads++;return originalIndex.apply(this,args);};
+        IDBObjectStore.prototype.getAll=function (/** @type {IDBValidKey|IDBKeyRange|null|undefined} */ query, /** @type {number|undefined} */ count) {if(this.name===env.initialized.stores['/app/item']) scans++;return originalStore.call(this,query,count);};
+        IDBIndex.prototype.getAll=function (/** @type {IDBValidKey|IDBKeyRange|null|undefined} */ query, /** @type {number|undefined} */ count) {indexReads++;return originalIndex.call(this,query,count);};
         assert.deepEqual(await repo.read({key:key(a.id)}),{record:a});
         assert.deepEqual(await repo.read({key:{kind:'unique',name:'name',values:{name:'Ada'}}}),{record:a});
         const where={kind:'call',operator:'eq',args:[{kind:'attr',name:'name'},{kind:'value',value:'Ada'}]};
@@ -783,7 +821,7 @@ test('extension Equality lookups scan while core lookups retain native index nar
     ]});
     const registry=await c.get('TeqFw_Dem_Registry$');
     registry.register([{
-        name:'example.CaseFolded',parameters:{},normalizeParams:params=>params,
+        name:'example.CaseFolded',parameters:{},normalizeParams:(/** @type {any} */ params)=>params,
         valueDomain:'String values.',preservation:'String values.',valueHandling:'Normalize and copy strings.',equality:'Case-insensitive string equality.',
     }]);
     registry.finalize();
@@ -791,7 +829,7 @@ test('extension Equality lookups scan while core lookups retain native index nar
         attributes:[{name:'id',type:{name:'text'}},{name:'folded',type:{name:'example.CaseFolded'}},{name:'label',type:{name:'text'}}],
         primaryKey:['id'],uniqueKeys:{by_folded:['folded'],by_label:['label']},
     }}}]})).model;
-    const handler={name:'example.CaseFolded',normalize:value=>value,copy:value=>value,equals:(left,right)=>left.toLowerCase()===right.toLowerCase()};
+    const handler={name:'example.CaseFolded',normalize:(/** @type {string} */ value)=>value,copy:(/** @type {string} */ value)=>value,equals:(/** @type {string} */ left,/** @type {string} */ right)=>left.toLowerCase()===right.toLowerCase()};
     const runtime=(await c.get('TeqFw_Dem_Repository_Runtime$')).bind({model,registry,handlers:[handler]});
     const name='dem-idb-extension-equality-'+ ++sequence;
     const provider=await (await c.get('TeqFw_Dem_IDb_Adapter$')).open({model,name,runtime});
@@ -801,8 +839,8 @@ test('extension Equality lookups scan while core lookups retain native index nar
         await provider.createSchema();
         const repo=await provider.get({path:'/extension/item'});
         await repo.create({record:{id:'1',folded:'ABC',label:'core'}});
-        IDBObjectStore.prototype.getAll=function (...args) {if(this.name==='/extension/item') scans++;return originalStore.apply(this,args);};
-        IDBIndex.prototype.getAll=function (...args) {indexReads++;return originalIndex.apply(this,args);};
+        IDBObjectStore.prototype.getAll=function (/** @type {IDBValidKey|IDBKeyRange|null|undefined} */ query, /** @type {number|undefined} */ count) {if(this.name==='/extension/item') scans++;return originalStore.call(this,query,count);};
+        IDBIndex.prototype.getAll=function (/** @type {IDBValidKey|IDBKeyRange|null|undefined} */ query, /** @type {number|undefined} */ count) {indexReads++;return originalIndex.call(this,query,count);};
         assert.equal((await repo.read({key:{kind:'unique',name:'by_folded',values:{folded:'abc'}}})).record.id,'1');
         const foldedWhere={kind:'call',operator:'eq',args:[{kind:'attr',name:'folded'},{kind:'value',value:'abc'}]};
         assert.equal((await repo.list({selection:{where:foldedWhere}})).records[0].id,'1');
@@ -842,7 +880,7 @@ test('index-only schema changes retain safe native lookup coverage',async()=>{
         const schema=structuredClone(simple);schema.item.indexes={name:{attributes:['name']}};
         next=await adapter.open({model:await compile(schema),name:env.name});await next.createSchema();
         const repo=await next.get({path:'/app/item'});
-        IDBObjectStore.prototype.getAll=function (...args) {if(this.name===env.initialized.stores['/app/item']) scans++;return originalStore.apply(this,args);};
+        IDBObjectStore.prototype.getAll=function (/** @type {IDBValidKey|IDBKeyRange|null|undefined} */ query, /** @type {number|undefined} */ count) {if(this.name===env.initialized.stores['/app/item']) scans++;return originalStore.call(this,query,count);};
         const where={kind:'call',operator:'eq',args:[{kind:'attr',name:'name'},{kind:'value',value:'old'}]};
         assert.equal((await repo.list({selection:{where}})).records.length,1);assert.equal(scans,0);
     } finally {IDBObjectStore.prototype.getAll=originalStore;await next?.close();await env.close();}
@@ -871,7 +909,7 @@ test('shared long-key and arbitrary scalar string workload',async()=>{
 
 test('shared structural evolution and history workload',async()=>{
     const name='dem-idb-evolution-'+ ++sequence;
-    try {evolutionTranscript=await exerciseEvolution({assert,open:async schema=>adapter.open({model:await compile(schema),name,enforceRelations:true})});}
+    try {evolutionTranscript=await exerciseEvolution({assert,open:async (/** @type {any} */ schema)=>adapter.open({model:await compile(schema),name,enforceRelations:true})});}
     finally {await remove(name);}
 });
 
@@ -890,8 +928,8 @@ test('native CryptoKey survives IndexedDB and key-only replacement', async () =>
     const key1=await crypto.subtle.generateKey({name:'HMAC',hash:'SHA-256'},false,['sign','verify']);
     const key2=await crypto.subtle.generateKey({name:'HMAC',hash:'SHA-256'},false,['sign','verify']);
     const payload=new TextEncoder().encode('native key persistence');
-    const signature=async key=>crypto.subtle.sign('HMAC',key,payload);
-    const check=async (key,sig)=>crypto.subtle.verify('HMAC',key,sig,payload);
+    const signature=async (/** @type {CryptoKey} */ key)=>crypto.subtle.sign('HMAC',key,payload);
+    const check=async (/** @type {CryptoKey} */ key,/** @type {ArrayBuffer} */ sig)=>crypto.subtle.verify('HMAC',key,sig,payload);
     let backend=await adapter.open({model,name,runtime});
     try {
         await backend.createSchema();
@@ -946,6 +984,6 @@ test('unchanged application module through browser composition', async () => {
 const results = [];
 for (const {name,body} of cases) {
     try { await body(); results.push({name,passed:true}); }
-    catch (error) { results.push({name,passed:false,error:(error.stack ?? String(error)) + (error.diagnostics ? JSON.stringify(error.diagnostics) : '')}); }
+    catch (error) { const failure = /** @type {any} */ (error); results.push({name,passed:false,error:(failure.stack ?? String(failure)) + (failure.diagnostics ? JSON.stringify(failure.diagnostics) : '')}); }
 }
 await fetch('/result',{method:'POST',body:JSON.stringify({results,applicationObservation,browser:navigator.userAgent,valueTranscript,atomicTranscript,extendedTranscript,evolutionTranscript})});

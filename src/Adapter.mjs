@@ -31,7 +31,7 @@ export default class Adapter {
         };
         /**
          * @param {any} arg
-         * @param {any} fields
+         * @param {string[]} fields
          * @returns {void}
          */
         const shape = function (arg, fields) {
@@ -69,7 +69,7 @@ export default class Adapter {
                     expected = JSON.parse(JSON.stringify(expectedModel));
                     validateModel(expected);
                 } catch (error) {
-                    if (error?.name === 'DemRepositoryError') throw error;
+                    if (/** @type {any} */ (error)?.name === 'DemRepositoryError') throw error;
                     fail('INVALID_INPUT', 'The expected model is not a valid Effective DEM.');
                 }
             }
@@ -88,7 +88,7 @@ export default class Adapter {
             return new Promise((resolve, reject) => {
                 /** @returns {void} */
                 const close = () => { try { database?.close(); } catch {} database = undefined; };
-                /** @param {any} error @param {any} value @returns {void} */
+                /** @param {any} error @param {any} [value] @returns {void} */
                 const finish = (error, value) => {
                     if (settled) return;
                     settled = true;
@@ -114,14 +114,15 @@ export default class Adapter {
                         if (!Array.isArray(entries)) { finish(storageFailure('database inventory was malformed.')); return; }
                         inventory = entries.filter(entry => entry?.name === name);
                         if (!inventory.length) { finish(null, {kind: 'absent'}); return; }
-                        if (inventory.length !== 1 || !Number.isSafeInteger(inventory[0].version) || inventory[0].version < 1) {
+                        const entry = inventory[0];
+                        if (inventory.length !== 1 || !Number.isSafeInteger(entry?.version) || entry.version < 1) {
                             finish(storageFailure('database inventory was ambiguous or lacked a valid version.'));
                             return;
                         }
                         phase = 'open';
                         let request;
                         try { request = indexedDB.open(name); }
-                        catch (error) { finish(storageFailure(String(error?.message ?? error))); return; }
+                        catch (error) { finish(storageFailure(String(/** @type {any} */ (error)?.message ?? error))); return; }
                         request.onupgradeneeded = () => {
                             try { request.transaction?.abort(); } catch {}
                             finish(storageFailure('database changed after inventory and an implicit upgrade was prevented.'));
@@ -132,14 +133,14 @@ export default class Adapter {
                             const db = request.result;
                             if (settled) { try { db.close(); } catch {} return; }
                             database = db;
-                            if (db.version !== inventory[0].version) { finish(storageFailure('database version changed after inventory.')); return; }
+                            if (db.version !== entry.version) { finish(storageFailure('database version changed after inventory.')); return; }
                             phase = 'read';
                             db.onversionchange = () => abort('database version changed during observation.');
                             db.onclose = () => { if (!settled) abort('database connection closed during observation.'); };
                             observe(db);
                         };
                     }, error => finish(storageFailure(String(error?.message ?? error))));
-                } catch (error) { finish(storageFailure(String(error?.message ?? error))); }
+                } catch (error) { finish(storageFailure(String(/** @type {any} */ (error)?.message ?? error))); }
 
                 /** @param {IDBDatabase} db */
                 const observe = db => {
@@ -155,18 +156,19 @@ export default class Adapter {
                             return;
                         }
                         transaction = db.transaction(names, 'readonly');
+                        const readTransaction = transaction;
                         let historyRequest, sequenceRequest, sequenceKeysRequest;
                         const storeDefinitions = Object.create(null);
                         try {
-                            const schemaStore = transaction.objectStore(schemaName);
-                            const sequenceStore = transaction.objectStore(sequenceName);
+                            const schemaStore = readTransaction.objectStore(schemaName);
+                            const sequenceStore = readTransaction.objectStore(sequenceName);
                             validateMetaStore(schemaStore, 'schema');
                             validateMetaStore(sequenceStore, 'sequence');
                             historyRequest = schemaStore.getAll();
                             sequenceRequest = sequenceStore.getAll();
                             sequenceKeysRequest = sequenceStore.getAllKeys();
                             for (const name of names) if (name !== schemaName && name !== sequenceName) {
-                                const store = transaction.objectStore(name);
+                                const store = readTransaction.objectStore(name);
                                 storeDefinitions[name] = {
                                     keyPath: store.keyPath,
                                     autoIncrement: store.autoIncrement,
@@ -176,10 +178,10 @@ export default class Adapter {
                                     }),
                                 };
                             }
-                        } catch (error) { abort(String(error?.message ?? error)); return; }
-                        transaction.onabort = () => finish(storageFailure(String(transaction.error?.message ?? 'read transaction aborted.')));
-                        transaction.onerror = () => {};
-                        transaction.oncomplete = () => {
+                        } catch (error) { abort(String(/** @type {any} */ (error)?.message ?? error)); return; }
+                        readTransaction.onabort = () => finish(storageFailure(String(readTransaction.error?.message ?? 'read transaction aborted.')));
+                        readTransaction.onerror = () => {};
+                        readTransaction.oncomplete = () => {
                             try {
                                 const {schemas, snapshots} = validateHistory(historyRequest.result, db.version, names);
                                 const model = schemas.at(-1).model;
@@ -189,11 +191,11 @@ export default class Adapter {
                                 const matchesExpected = expected === undefined ? null : sameModel(model, expected);
                                 finish(null, {kind: 'existing', version: db.version, model, fingerprint: logicalFingerprint, schemas, matchesExpected});
                             } catch (error) {
-                                if (error?.name === 'DemRepositoryError') finish(error);
-                                else finish(storageFailure(String(error?.message ?? error)));
+                                if (/** @type {any} */ (error)?.name === 'DemRepositoryError') finish(error);
+                                else finish(storageFailure(String(/** @type {any} */ (error)?.message ?? error)));
                             }
                         };
-                    } catch (error) { finish(storageFailure(String(error?.message ?? error))); }
+                    } catch (error) { finish(storageFailure(String(/** @type {any} */ (error)?.message ?? error))); }
                 };
             });
         };
@@ -206,14 +208,14 @@ export default class Adapter {
             /** @param {string} message @returns {void} */
             const invalid = message => { throw new TypeError(message); };
             if (!jsonValue(model) || !plain(model) || !plain(model.entities) || !Object.keys(model.entities).length || !Object.hasOwn(model, 'packages')) invalid('entities');
-            if (!Array.isArray(model.packages) || model.packages.some(path => typeof path !== 'string' || !/^\/(?:[a-z][a-z0-9]*\/)*$/.test(path)) || new Set(model.packages).size !== model.packages.length) invalid('packages');
-            const paths = Object.keys(model.entities);
+            if (!Array.isArray(model.packages) || model.packages.some(/** @type {(path: any) => boolean} */ (path => typeof path !== 'string' || !/^\/(?:[a-z][a-z0-9]*\/)*$/.test(path))) || new Set(model.packages).size !== model.packages.length) invalid('packages');
+            const paths = /** @type {string[]} */ (Object.keys(model.entities));
             if (paths.some(path => !isCanonicalPath(path) || path === '/dem' || path.startsWith('/dem/'))) invalid('entity path');
             const relationMembers = new Set();
             for (const [path, entity] of Object.entries(model.entities)) {
                 if (!plain(entity) || !Array.isArray(entity.attributes) || !plain(entity.uniqueKeys) || !plain(entity.indexes) || !plain(entity.relations)) invalid('entity');
                 if (entity.primaryKey !== null && (!Array.isArray(entity.primaryKey) || !entity.primaryKey.length)) invalid('primary key');
-                const attributes = entity.attributes.map(attribute => attribute?.name);
+                const attributes = /** @type {any[]} */ (entity.attributes).map(/** @type {(attribute: any) => any} */ (attribute => attribute?.name));
                 if (attributes.some(name => typeof name !== 'string' || !/^[a-z0-9_]+$/.test(name)) || new Set(attributes).size !== attributes.length) invalid('attributes');
                 for (const attribute of entity.attributes) {
                     if (!plain(attribute) || typeof attribute.nullable !== 'boolean' || !plain(attribute.type) || typeof attribute.type.name !== 'string' || !attribute.type.name) invalid('type');
@@ -230,7 +232,7 @@ export default class Adapter {
                 for (const [relationName, relation] of Object.entries(entity.relations)) {
                     if (!relationName || !plain(relation) || !has(relation.attributes) || !plain(relation.target) || !paths.includes(relation.target.path)) invalid('relation');
                     const target = model.entities[relation.target.path];
-                    if (!Array.isArray(relation.target.attributes) || relation.target.attributes.length !== relation.attributes.length || relation.target.attributes.some(name => !target.attributes.some(attribute => attribute.name === name))) invalid('relation target');
+                    if (!Array.isArray(relation.target.attributes) || relation.target.attributes.length !== relation.attributes.length || relation.target.attributes.some(/** @type {(name: any) => boolean} */ (name => target.attributes.some(/** @type {(attribute: any) => boolean} */ (attribute => attribute.name === name))))) invalid('relation target');
                     for (const name of relation.attributes) relationMembers.add(path + '\0' + name);
                     for (const name of relation.target.attributes) relationMembers.add(relation.target.path + '\0' + name);
                 }
@@ -273,7 +275,7 @@ export default class Adapter {
                 if (!plain(coverage) || Object.keys(coverage).some(path => !Object.hasOwn(row.model.entities, path)) || Object.entries(row.model.entities).some(([path]) => typeof coverage[path] !== 'boolean')) throw new TypeError('invalid native lookup metadata');
                 return {version: row.version, model: row.model, nativeLookup: coverage};
             }).sort((a, b) => a.version - b.version);
-            if (new Set(schemas.map(row => row.version)).size !== schemas.length || schemas.at(-1).version !== currentVersion) throw new TypeError('history range does not match database version');
+            if (new Set(schemas.map(row => row.version)).size !== schemas.length || schemas[schemas.length - 1].version !== currentVersion) throw new TypeError('history range does not match database version');
             for (let i = 1; i < schemas.length; i++) {
                 if (schemas[i].version !== schemas[i - 1].version + 1) throw new TypeError('schema history contains a gap');
                 const previous = schemas[i - 1];
@@ -287,7 +289,7 @@ export default class Adapter {
             }
             const allEntities = new Set(schemas.flatMap(row => Object.keys(row.model.entities)));
             const expectedStores = new Set(['/dem/schema', '/dem/sequence', ...allEntities]);
-            if (names.some(name => !expectedStores.has(name))) throw errors.create({code: 'UNSUPPORTED', message: 'Storage contains an unexplained object store.'});
+            if (names.some(/** @type {(name: string) => boolean} */ (name => !expectedStores.has(name)))) throw errors.create({code: 'UNSUPPORTED', message: 'Storage contains an unexplained object store.'});
             if ([...expectedStores].some(name => !names.includes(name))) throw new TypeError('physical store set does not match recorded source history');
             return {snapshots: schemas, schemas: schemas.map(({version, model}) => ({version, model}))};
         };
@@ -295,17 +297,19 @@ export default class Adapter {
         /** @param {any} snapshots @param {any} currentModel @param {any} names @param {any} storeDefinitions @param {any} counterKeys @param {any} counters @returns {void} */
         const validatePhysicalLayout = (snapshots, currentModel, names, storeDefinitions, counterKeys, counters) => {
             const sequenceStore = '/dem/sequence';
-            const retained = new Set(snapshots.flatMap(row => Object.keys(row.model.entities)));
-            for (const name of names.filter(name => name !== '/dem/schema' && name !== sequenceStore)) {
-                const containing = [...snapshots].reverse().find(row => Object.hasOwn(row.model.entities, name));
+            const retained = new Set(snapshots.flatMap(/** @type {(row: any) => string[]} */ (row => Object.keys(row.model.entities))));
+            for (const name of names.filter(/** @type {(name: string) => boolean} */ (name => name !== '/dem/schema' && name !== sequenceStore))) {
+                const containing = [...snapshots].reverse().find(/** @type {(row: any) => boolean} */ (row => Object.hasOwn(row.model.entities, name)));
                 const definition = storeDefinitions[name];
                 if (!containing || !definition || definition.keyPath !== null || !definition.autoIncrement) throw new TypeError('invalid entity store definition');
                 const entity = containing.model.entities[name];
-                const expected = Object.fromEntries([
+                const indexEntries = /** @type {any[][]} */ ([
                     ...(entity.primaryKey?.length ? [['primary', entity.primaryKey]] : []),
                     ...Object.entries(entity.uniqueKeys ?? {}).map(([key, attributes]) => ['unique:' + key, attributes]),
                     ...Object.entries(entity.indexes ?? {}).map(([key, index]) => ['index:' + key, index.attributes]),
-                ].filter(([, attributes]) => attributes.every(attribute => /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(attribute))));
+                ]);
+                const expectedEntries = indexEntries.filter((entry) => /** @type {any[]} */ (entry[1]).every((/** @type {any} */ attribute) => /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(attribute)));
+                const expected = Object.fromEntries(expectedEntries);
                 if (definition.indexes.length !== Object.keys(expected).length) throw new TypeError('entity indexes do not match source projection');
                 for (const index of definition.indexes) {
                     const attributes = expected[index.name];
@@ -333,14 +337,14 @@ export default class Adapter {
         this.open = async function ({model, name, indexedDB = globalThis.indexedDB, enforceRelations = true, runtime}) {
             if (!model?.entities || typeof name !== 'string' || !name) fail('INVALID_INPUT', 'A compiled DEM model and database name are required.');
             if (typeof enforceRelations !== 'boolean') fail('INVALID_INPUT', 'enforceRelations must be boolean.');
-            const snapshot = JSON.parse(JSON.stringify(model));
+            const snapshot = /** @type {any} */ (JSON.parse(JSON.stringify(model)));
             const hasRelations=Object.values(snapshot.entities).some(entity=>Object.values(entity.relations ?? {}).length>0);
             if (!enforceRelations && hasRelations) fail('UNSUPPORTED','DEM relation actions cannot be disabled for a model with relations.');
             const identity = canonical(snapshot);
-            const hasCryptoKey=Object.values(snapshot.entities).some(entity=>entity.attributes.some(a=>a.type.name==='idb.CryptoKey'));
+            const hasCryptoKey=Object.values(snapshot.entities).some(/** @type {(entity: any) => boolean} */ (entity => entity.attributes.some(/** @type {(a: any) => boolean} */ (a => a.type.name==='idb.CryptoKey'))));
             if (!indexedDB && hasCryptoKey) fail('UNSUPPORTED','IndexedDB is required for CryptoKey persistence.');
             if (!indexedDB) fail('INVALID_INPUT','An IndexedDB factory is required.');
-            const hasExtensions=Object.values(snapshot.entities).some(entity=>entity.attributes.some(a=>a.type.name.includes('.')));
+            const hasExtensions=Object.values(snapshot.entities).some(/** @type {(entity: any) => boolean} */ (entity => entity.attributes.some(/** @type {(a: any) => boolean} */ (a => a.type.name.includes('.')))));
             if (hasExtensions && !runtime) fail('UNSUPPORTED','A model-scoped DEM Runtime is required for extension types.');
             if (runtime && canonical(runtime.model)!==identity) fail('INVALID_INPUT','The DEM Runtime is bound to a different Effective DEM.');
             const norm=runtime?.normalize ?? normalize;
@@ -382,7 +386,9 @@ export default class Adapter {
             for (const entity of Object.values(snapshot.entities)) {
                 for (const a of entity.attributes) if (a.generation && a.type.name !== 'identity') fail('UNSUPPORTED', 'Generation is supported only for identity attributes.');
             }
+            /** @type {IDBDatabase|undefined} */
             let database;
+            /** @type {Promise<void>|undefined} */
             let pending;
             let closed = false;
             /**
@@ -394,10 +400,11 @@ export default class Adapter {
                 return new Promise((resolve, reject) => {
                     const request = version === undefined ? indexedDB.open(name) : indexedDB.open(name, version);
                     let rejected = false;
+                    /** @type {any} */
                     let cause;
                     request.onblocked = () => { rejected = true; reject(errors.create({code:'STORAGE',message:'Database upgrade is blocked by another connection.'})); };
                     request.onerror = () => reject(cause ?? mapped(request.error));
-                    request.onupgradeneeded = event => {
+                    request.onupgradeneeded = /** @type {(event: IDBVersionChangeEvent) => void} */ (event => {
                         const tx = request.transaction, db = request.result;
                         try {
                             if (rejected || !initialize) fail('UNSUPPORTED', 'Initialize the database explicitly with createSchema().');
@@ -417,7 +424,7 @@ export default class Adapter {
                                 // Native indexes are optional lookup aids. Repository evaluation does not rely on key codecs.
                                 for (const key of Array.from(store.indexNames)) store.deleteIndex(key);
                                 for (const [key, attrs] of Object.entries(indexes)) {
-                                    if (attrs.every(attr => /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(attr))) store.createIndex(key, attrs, {unique:false});
+                                    if (attrs.every((/** @type {any} */ attr) => /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(attr))) store.createIndex(key, attrs, {unique:false});
                                 }
                             }
                             const history=tx.objectStore(schemaStore);
@@ -428,7 +435,7 @@ export default class Adapter {
                                 history.put({version:db.version,layout:2,model:snapshot,nativeLookup});
                             };
                         } catch (error) { cause = mapped(error); tx.abort(); }
-                    };
+                    });
                     request.onsuccess = () => {
                         const db = request.result;
                         if (rejected) { db.close(); return; }
@@ -488,7 +495,7 @@ export default class Adapter {
                 if (closed) fail('STORAGE', 'Provider is closed.');
                 if (pending) await pending;
                 pending = initialize();
-                try { await pending; return {database, stores:{...stores}, version:database.version}; }
+                try { await pending; const db = database; if (!db) throw errors.create({code:'STORAGE',message:'Database initialization did not complete.'}); return {database:db, stores:{...stores}, version:db.version}; }
                 finally { pending = undefined; }
             };
             /**
@@ -498,7 +505,7 @@ export default class Adapter {
              */
             const logical = function (entity, stored) {
                 // Additive defaults/nulls can be read without rewriting old data; no implicit type conversions.
-                const input = Object.fromEntries(entity.attributes.filter(a => Object.hasOwn(stored,a.name)).map(a => [a.name,stored[a.name]]));
+                const input = Object.fromEntries(entity.attributes.filter(/** @type {(a: any) => boolean} */ (a => Object.hasOwn(stored,a.name))).map(/** @type {(a: any) => [string, any]} */ (a => [a.name,stored[a.name]])));
                 try { return norm.record({entity, record:norm.record({entity, record:input, mode:'create'}), mode:'complete'}); }
                 catch { fail('STORAGE', 'Stored record is incompatible with the selected model; migrate its values explicitly.'); }
             };
@@ -509,10 +516,17 @@ export default class Adapter {
              * @param {any} [lookup]
              * @returns {Promise<any>}
              */
+            /** @param {any} path @param {boolean} write @param {(context: any) => any} execute @param {any} [lookup] @returns {Promise<any>} */
             const run = async function (path, write, execute, lookup) {
                 const db = await ensure();
                 return new Promise((resolve, reject) => {
-                    let tx, result, cause;
+                    /** @type {IDBTransaction|undefined} */
+                    /** @type {any} */
+                    let tx;
+                    /** @type {any} */
+                    let result;
+                    /** @type {any} */
+                    let cause;
                     try {
                         const scoped = path===null || write ? paths : [path];
                         tx = db.transaction([schemaStore,sequenceStore, ...scoped.map(p => stores[p])], write ? 'readwrite' : 'readonly');
@@ -552,20 +566,26 @@ export default class Adapter {
                          * @returns {void}
                          */
                         const load=function (p,metadata) {
-                            let rows, keys;
+                            /** @type {any[]|undefined} */
+                            /** @type {any[]|undefined} */
+                            let rows;
+                            /** @type {any[]|undefined} */
+                            let keys;
                             /** @returns {void} */
                             const collect=()=>{
-                                if (rows && keys) data[p]=rows.map((record,i)=>({key:keys[i],record:logical(snapshot.entities[p],record)}));
+                                if (rows && keys) data[p]=rows.map((record,i)=>({key:keys?.[i],record:logical(snapshot.entities[p],record)}));
                                 ready();
                             };
                             const store=tx.objectStore(stores[p]);
-                            let source=store,range;
-                            const coreLookup=lookup?.members.every(member=>{
-                                const attribute=snapshot.entities[p].attributes.find(item=>item.name===member);
+                            /** @type {IDBObjectStore|IDBIndex} */
+                            let source=store;
+                            let range;
+                            const coreLookup=lookup?.members.every(/** @type {(member: string) => boolean} */ (member=>{
+                                const attribute=snapshot.entities[p].attributes.find(/** @type {(item: any) => boolean} */ (item=>item.name===member));
                                 return attribute && !attribute.type.name.includes('.');
-                            });
+                            }));
                             if (!write && coreLookup && (metadata?.nativeLookup?.[p] ?? db.version===1)) {
-                                const indexName=Array.from(store.indexNames).find(name=>{
+                                const indexName=Array.from(store.indexNames).find((name)=>{
                                     const keyPath=store.index(name).keyPath;
                                     return canonical(Array.isArray(keyPath) ? keyPath : [keyPath])===canonical(lookup.members);
                                 });
@@ -601,18 +621,18 @@ export default class Adapter {
                 if (!entity) fail('NOT_FOUND','Entity not found.');
                 await ensure();
                 return {
-                    create: async params => (await execute({operations:[{path,method:'create',params}]})).results[0],
-                    read: async params => (await execute({operations:[{path,method:'read',params}]})).results[0],
-                    update: async params => (await execute({operations:[{path,method:'update',params}]})).results[0],
-                    delete: async params => (await execute({operations:[{path,method:'delete',params}]})).results[0],
-                    list: async params => (await execute({operations:[{path,method:'list',params}]})).results[0],
+                    create: async (/** @type {any} */ params) => (await execute({operations:[{path,method:'create',params}]})).results[0],
+                    read: async (/** @type {any} */ params) => (await execute({operations:[{path,method:'read',params}]})).results[0],
+                    update: async (/** @type {any} */ params) => (await execute({operations:[{path,method:'update',params}]})).results[0],
+                    delete: async (/** @type {any} */ params) => (await execute({operations:[{path,method:'delete',params}]})).results[0],
+                    list: async (/** @type {any} */ params) => (await execute({operations:[{path,method:'list',params}]})).results[0],
                 };
             };
             /** @param {any} params @returns {Promise<any>} */
             const execute=async function (params) {
                 shape(params,['operations']);
                 const commands=batchExec.validate({model:snapshot,operations:params.operations});
-                const write=commands.some(command=>['create','update','delete'].includes(command.method));
+                const write=commands.some(/** @type {(command: any) => boolean} */ (command=>['create','update','delete'].includes(command.method)));
                 const single=commands.length===1 ? commands[0] : undefined;
                 const scope=single && !write ? single.path : null;
                 let lookup;
@@ -622,24 +642,24 @@ export default class Adapter {
                     if (where?.operator==='eq' && where.args?.[0]?.kind==='attr' && where.args?.[1]?.kind==='value')
                         lookup={members:[where.args[0].name],values:[where.args[1].value]};
                 }
-                return run(scope,write,({tx,data,counter})=>{
+                return run(scope,write,/** @type {(context: any) => any} */ (({tx,data,counter})=>{
                     const affected=scope===null || write ? paths : [scope];
-                    const before=Object.fromEntries(affected.map(p=>[p,data[p].map(row=>({key:row.key,row}))]));
+                    const before=Object.fromEntries(affected.map(p=>[p,data[p].map((/** @type {any} */ row)=>({key:row.key,row}))]));
                     const result=batchExec.plan({model:snapshot,operations:commands,rows:data,enforceRelations,
-                        generate:({path,attribute,rows})=>{
+                        generate: /** @type {(input: any) => any} */ (({path,attribute,rows})=>{
                             if (attribute.type.profile.type==='uuid') return globalThis.crypto.randomUUID();
                             let highest=BigInt(counter[path] ?? '0');
                             for (const entry of rows) if (BigInt(entry.record[attribute.name])>highest) highest=BigInt(entry.record[attribute.name]);
                             return (highest+1n).toString();
-                        },
-                        created:({path,entity,record})=>{
-                            const a=entity.attributes.find(a=>a.type.name==='identity' && a.type.profile.type==='int');
+                        }),
+                        created: /** @type {(input: any) => void} */ (({path,entity,record})=>{
+                            const a=entity.attributes.find((/** @type {any} */ a)=>a.type.name==='identity' && a.type.profile.type==='int');
                             if (a && BigInt(record[a.name])>BigInt(counter[path] ?? '0')) counter[path]=record[a.name];
-                        },
+                        }),
                     });
                     if (write) for (const p of affected) {
-                        const store=tx.objectStore(stores[p]), initial=new Map(before[p].map(item=>[item.key,item.row]));
-                        const keys=new Set(data[p].filter(row=>row.key!==undefined).map(row=>row.key));
+                        const store=tx.objectStore(stores[p]), initial=new Map(before[p].map((/** @type {any} */ item)=>[item.key,item.row]));
+                        const keys=new Set(data[p].filter((/** @type {any} */ row)=>row.key!==undefined).map((/** @type {any} */ row)=>row.key));
                         for (const key of initial.keys()) if (!keys.has(key)) store.delete(key);
                         for (const row of data[p]) {
                             if (row.key===undefined) store.add(row.record);
@@ -648,14 +668,14 @@ export default class Adapter {
                         tx.objectStore(sequenceStore).put(counter[p] ?? '0',p);
                     }
                     return result;
-                },lookup);
+                }),lookup);
             };
             /** @returns {Promise<any>} */
             const getSchemaHistory=async function () {
                 const db=await ensure();
                 return new Promise((resolve,reject)=>{
                     const tx=db.transaction(schemaStore,'readonly'),request=tx.objectStore(schemaStore).getAll();
-                    tx.oncomplete=()=>resolve({schemas:request.result.map(row=>({version:row.version,model:row.model}))});
+                    tx.oncomplete=()=>resolve({schemas:request.result.map((/** @type {any} */ row)=>({version:row.version,model:row.model}))});
                     tx.onabort=()=>reject(mapped(tx.error));
                 });
             };
