@@ -552,6 +552,36 @@ test('composite relation actions handle null members, multilevel cascades and ba
     } finally { await env.close(); }
 });
 
+test('conflicting cascade paths reject an update without changing stored records', async () => {
+    const schema = {$format:2,$namespace:'/app/',
+        parent:{
+            attributes:[{name:'id',type:{name:'integer'}},...['code','part','alternate'].map(name=>({name,type:{name:'text'}}))],
+            primaryKey:['id'],uniqueKeys:{by_pair:['code','part'],by_alternate:['alternate']},
+        },
+        child:{
+            attributes:[{name:'id',type:{name:'integer'}},...['code','part'].map(name=>({name,type:{name:'text'}}))],
+            primaryKey:['id'],relations:{
+                a_pair:{attributes:['code','part'],onUpdate:'cascade',target:{path:'/app/parent',attributes:['code','part']}},
+                b_alternate:{attributes:['code'],onUpdate:'cascade',target:{path:'/app/parent',attributes:['alternate']}},
+            },
+        },
+    };
+    const env = await open({schema});
+    try {
+        const parent = await env.provider.get({path:'/app/parent'});
+        const child = await env.provider.get({path:'/app/child'});
+        const before = {id:'1',code:'old',part:'part',alternate:'old'};
+        const dependent = {id:'2',code:'old',part:'part'};
+        await parent.create({record:before});
+        await child.create({record:dependent});
+        await assert.rejects(parent.update({key:key('1'),changes:{part:'next',alternate:'other'}}),{
+            code:'UNSUPPORTED',message:'Conflicting cascade paths update the same record.',
+        });
+        assert.deepEqual((await parent.read({key:key('1')})).record,before);
+        assert.deepEqual((await child.read({key:key('2')})).record,dependent);
+    } finally { await env.close(); }
+});
+
 test('omitted relation actions restrict deleting and changing a referenced key', async () => {
     const schema = {$format:2,$namespace:'/app/',
         parent:{attributes:[{name:'id',type:{name:'integer'}},{name:'code',type:{name:'text'}}],primaryKey:['id'],uniqueKeys:{by_code:['code']}},
