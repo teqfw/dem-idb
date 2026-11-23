@@ -485,7 +485,7 @@ test('concurrent providers allocate distinct ids; sequence survives deletion', a
     } finally { await other.close(); await env.close(); }
 });
 
-test('DEM relation actions enforce defaults and cascade key updates and deletes per command', async () => {
+test('DEM relation actions cascade key updates and deletes per command', async () => {
     const schema = {$format:2,$namespace:'/app/',parent:{attributes:[{name:'id',type:{name:'integer'}},{name:'code',type:{name:'text'}}],primaryKey:['id'],uniqueKeys:{by_code:['code']}},child:{attributes:[{name:'id',type:{name:'integer'}},{name:'owner',type:{name:'text'}}],primaryKey:['id'],relations:{owner:{attributes:['owner'],onDelete:'cascade',onUpdate:'cascade',target:{path:'/app/parent',attributes:['code']}}}}};
     const env = await open({schema});
     try {
@@ -501,6 +501,76 @@ test('DEM relation actions enforce defaults and cascade key updates and deletes 
         const restrictive={$format:2,$namespace:'/app/',parent:{attributes:[{name:'id',type:{name:'integer'}},{name:'code',type:{name:'text'}}],primaryKey:['id'],uniqueKeys:{by_code:['code']}},child:{attributes:[{name:'id',type:{name:'integer'}},{name:'owner',type:{name:'text'}}],primaryKey:['id'],relations:{owner:{attributes:['owner'],target:{path:'/app/parent',attributes:['code']}}}}};
         await assert.rejects(adapter.open({model:await compile(restrictive),name:env.name+'-relaxed',enforceRelations:false}),{code:'UNSUPPORTED'});
         await assert.rejects(child.create({record:{id:'2',owner:'missing'}}),{code:'RELATION'});
+    } finally { await env.close(); }
+});
+
+test('composite relation actions handle null members, multilevel cascades and batch rollback', async () => {
+    const cascade = {onDelete:'cascade',onUpdate:'cascade'};
+    const node = (target,nullable) => ({
+        attributes:[
+            {name:'id',type:{name:'integer'}},
+            {name:'code',type:{name:'text'},nullable},
+            {name:'part',type:{name:'text'}},
+        ],
+        primaryKey:['id'],
+        uniqueKeys:{by_code_part:['code','part']},
+        ...(target ? {relations:{owner:{
+            attributes:['code','part'],...cascade,target:{path:target,attributes:['code','part']},
+        }}} : {}),
+    });
+    const schema = {$format:2,$namespace:'/app/',
+        root:node(null,false),branch:node('/app/root',true),leaf:node('/app/branch',false),
+    };
+    const env = await open({schema});
+    try {
+        const root = await env.provider.get({path:'/app/root'});
+        const branch = await env.provider.get({path:'/app/branch'});
+        const leaf = await env.provider.get({path:'/app/leaf'});
+        await root.create({record:{id:'1',code:'old',part:'part'}});
+        await branch.create({record:{id:'2',code:'old',part:'part'}});
+        await branch.create({record:{id:'3',code:null,part:'unmatched'}});
+        await leaf.create({record:{id:'4',code:'old',part:'part'}});
+        const update = {path:'/app/root',method:'update',params:{key:key('1'),changes:{code:'new',part:'next'}}};
+        const readLeaf = {path:'/app/leaf',method:'read',params:{key:key('4')}};
+        const result = await env.provider.execute({operations:[update,readLeaf]});
+        assert.deepEqual(result.results[1].record,{id:'4',code:'new',part:'next'});
+        assert.deepEqual((await branch.read({key:key('2')})).record,{id:'2',code:'new',part:'next'});
+
+        const remove = {path:'/app/root',method:'delete',params:{key:key('1')}};
+        await assert.rejects(env.provider.execute({operations:[
+            remove,readLeaf,
+            {path:'/app/leaf',method:'create',params:{record:{id:'5',code:'new',part:'next'}}},
+        ]}),{code:'RELATION'});
+        assert.equal((await root.read({key:key('1')})).record.code,'new');
+        assert.equal((await branch.read({key:key('2')})).record.code,'new');
+        assert.equal((await leaf.read({key:key('4')})).record.code,'new');
+
+        const removed = await env.provider.execute({operations:[remove,readLeaf]});
+        assert.equal(removed.results[1].record,null);
+        assert.equal((await branch.read({key:key('2')})).record,null);
+        assert.deepEqual((await branch.read({key:key('3')})).record,{id:'3',code:null,part:'unmatched'});
+    } finally { await env.close(); }
+});
+
+test('omitted relation actions restrict deleting and changing a referenced key', async () => {
+    const schema = {$format:2,$namespace:'/app/',
+        parent:{attributes:[{name:'id',type:{name:'integer'}},{name:'code',type:{name:'text'}}],primaryKey:['id'],uniqueKeys:{by_code:['code']}},
+        child:{
+            attributes:[{name:'id',type:{name:'integer'}},{name:'owner',type:{name:'text'}}],primaryKey:['id'],
+            relations:{owner:{attributes:['owner'],target:{path:'/app/parent',attributes:['code']}}},
+        },
+    };
+    const env = await open({schema});
+    try {
+        const parent = await env.provider.get({path:'/app/parent'});
+        const child = await env.provider.get({path:'/app/child'});
+        const before = {id:'1',code:'old'};
+        await parent.create({record:before});
+        await child.create({record:{id:'2',owner:'old'}});
+        await assert.rejects(parent.delete({key:key('1')}),{code:'RELATION'});
+        await assert.rejects(parent.update({key:key('1'),changes:{code:'new'}}),{code:'RELATION'});
+        assert.deepEqual((await parent.read({key:key('1')})).record,before);
+        assert.deepEqual((await child.read({key:key('2')})).record,{id:'2',owner:'old'});
     } finally { await env.close(); }
 });
 
