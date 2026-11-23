@@ -51,22 +51,21 @@ await users.delete({key});
 await backend.close();
 ```
 
-`open({model, name, indexedDB?, enforceRelations?, runtime?})` configures a provider without creating a database. `indexedDB` defaults to the browser global. `get({path})` opens an existing compatible database; initialization is explicit. Methods return the DEM result envelopes and shared `DemRepositoryError` codes. `createSchema()` returns `{database, stores, version}` for host administration; direct writes through that raw connection bypass adapter checks.
+`open({model, name, indexedDB?, runtime?})` configures a provider without creating a database. `indexedDB` defaults to the browser global. `get({path})` opens an existing compatible database; initialization is explicit. Methods return the DEM result envelopes and shared `DemRepositoryError` codes. `createSchema()` returns `{database, stores, version}` for host administration; direct writes through that raw connection bypass adapter checks.
 
 For DI substitution, map `TeqFw_Dem_Api_RepositoryProvider$` to `TeqFw_Dem_IDb_Provider$` using a host preprocessor. Map `TeqFw_Dem_IDb_Api_Configuration$` to a host component whose asynchronous `get()` returns the adapter options. Initialize the schema separately through the adapter first. The provider opens lazily, caches its backend, and exposes `close()` for host shutdown. The default configuration fails with `UNSUPPORTED`.
 
 ## Compatibility and capabilities
 
-Records use DEM normalization: exact integers, decimals and int identities are strings; dates/datetimes and UUIDs are canonical strings; binary is base64; JSON and vectors are detached JSON values. Generated integer identities use exact `BigInt` allocation and persistent counters; explicit identities advance the counter. UUID generation uses browser `crypto.randomUUID()`. Other generation policies reject as `UNSUPPORTED` before database access.
+Records use DEM normalization: exact integers, decimals and int identities are strings; dates/datetimes and UUIDs are canonical strings; binary is base64; JSON and selected extension values are detached by their DEM Runtime handlers. Generated integer identities use exact `BigInt` allocation and persistent counters; explicit identities advance the counter. UUID generation uses browser `crypto.randomUUID()`. Other generation policies reject as `UNSUPPORTED` before database access.
 
-Primary/unique keys are checked in write transactions, allowing repeated nullable unique tuples. Relations are descriptive by default: missing targets are accepted. Set `enforceRelations: true` to check outgoing and incoming relations atomically within this database, with restrictive target updates/deletes. This mode requires that all existing related data is already consistent. It does not implement cascades or cross-database transactions. The adapter passes DEM's current repository conformance suite in this mode; the default mode intentionally provides partial semantic compatibility.
+Primary/unique keys and declared relation actions are checked in write transactions. Omitted relation actions mean `restrict`; `cascade` applies to delete and referenced-key update independently. Each command resolves its cascade effects before the next command in a batch, and a failed batch rolls back. All existing related data must already satisfy the selected model. `enforceRelations:false` is rejected when relations exist. The guarantee covers writes through this adapter; direct IndexedDB writes bypass it. Cross-database transactions are unsupported.
 
-Selections support DEM boolean trees, all-core comparisons, explicit null tests,
+Selections support DEM boolean trees, comparable Core and registered extension comparisons, explicit null tests,
 exact ordering, deterministic tie-breakers and offset/limit. Binary compares decoded
-bytes; dense/bit vectors compare numeric elements, sparse vectors conceptual values
-with absent zero; JSON compares canonical serialization by Unicode scalar sequence.
-This is deterministic representation order, not JSON numeric ordering or vector
-similarity. Keyless structured records can be listed. Joins, projections, totals
+bytes; JSON compares canonical serialization by Unicode scalar sequence. Vector
+types are extension-owned and are accepted only when a runtime handler supplies
+their declared semantics. Keyless structured records can be listed. Joins, projections, totals
 and arbitrary predicates remain outside the DEM selection API.
 
 Each operation uses a native transaction and reports a write result after commit. Writes validate data and constraints over full store scans; eligible Core key reads and single-attribute equality selections use native indexes when safe; extension-type lookups scan; selection semantics are supplied by the shared DEM Repository/Select component; native index order is never used as logical numeric or Unicode order. All write transactions include the shared sequence store and are conservatively serialized within this database. This favors correctness and broad types over throughput. Other selection shapes and write validation still scan stores; there is no silent result cap. Multiple calls do not share a transaction. External writes and storage tampering are outside adapter guarantees.
@@ -165,7 +164,7 @@ schema commands or generated-result references are supported. The host can map
 for RepositoryProvider. Bulk operations use batches of ordinary commands.
 
 backend.getSchemaHistory() returns {schemas:[{version,model}]} with complete applied
-model snapshots. JSON/vector negative zero normalizes to zero; nested sparse inputs
+model snapshots. JSON negative zero normalizes to zero; nested sparse inputs
 are detached. Valid Unicode scalar strings including NUL are preserved; lone UTF16
 surrogates fail DEM validation.
 

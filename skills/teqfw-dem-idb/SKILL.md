@@ -20,7 +20,7 @@ does not yet implement; models containing those history entities are rejected.
 
 Host composition may map `TeqFw_Dem_Api_RepositoryProvider$` to `TeqFw_Dem_IDb_Provider$` and the configuration contract to a host component returning adapter options. Business components use DEM repositories. Close the backend/provider at host shutdown and replace providers invalidated by schema upgrades.
 
-Relations are descriptive by default; `enforceRelations:true` enables same-database atomic integrity checks. Eligible Core key/equality reads use native indexes with coverage-safe fallback; extension-type lookups scan; other
+DEM-declared relation actions are enforced atomically within the adapter. `enforceRelations:false` is rejected when relations exist. Eligible Core key/equality reads use native indexes with coverage-safe fallback; extension-type lookups scan; other
 selections and logical write checks scan records. Keep these differences and browser storage lifecycle visible when comparing with RDB. Structural schema updates preserve stores and snapshots but do not infer data conversions or audit historical constraints. The host owns migrations, backup and synchronization. Verify real browser behavior before claiming support for additional runtimes.
 
 
@@ -34,7 +34,7 @@ Provider for atomic ordered CRUD/list command batches. Results publish after one
 commit; any command failure rolls back. Use explicit dependent keys. Inspect
 getSchemaHistory through the adapter backend and replace stale providers after
 structural upgrades. All-core comparisons and keyless ordering follow DEM, including
-byte ordering, numeric vector lexicographic order and canonical JSON representation
+byte ordering and canonical JSON representation
 order. Async callbacks and schema commands are outside atomic data batches.
 
 

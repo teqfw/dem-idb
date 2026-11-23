@@ -330,10 +330,12 @@ export default class Adapter {
          * @param {any} [deps.runtime]
          * @returns {Promise<any>}
          */
-        this.open = async function ({model, name, indexedDB = globalThis.indexedDB, enforceRelations = false, runtime}) {
+        this.open = async function ({model, name, indexedDB = globalThis.indexedDB, enforceRelations = true, runtime}) {
             if (!model?.entities || typeof name !== 'string' || !name) fail('INVALID_INPUT', 'A compiled DEM model and database name are required.');
             if (typeof enforceRelations !== 'boolean') fail('INVALID_INPUT', 'enforceRelations must be boolean.');
             const snapshot = JSON.parse(JSON.stringify(model));
+            const hasRelations=Object.values(snapshot.entities).some(entity=>Object.values(entity.relations ?? {}).length>0);
+            if (!enforceRelations && hasRelations) fail('UNSUPPORTED','DEM relation actions cannot be disabled for a model with relations.');
             const identity = canonical(snapshot);
             const hasCryptoKey=Object.values(snapshot.entities).some(entity=>entity.attributes.some(a=>a.type.name==='idb.CryptoKey'));
             if (!indexedDB && hasCryptoKey) fail('UNSUPPORTED','IndexedDB is required for CryptoKey persistence.');
@@ -512,7 +514,7 @@ export default class Adapter {
                 return new Promise((resolve, reject) => {
                     let tx, result, cause;
                     try {
-                        const scoped = path===null || enforceRelations && write ? paths : [path];
+                        const scoped = path===null || write ? paths : [path];
                         tx = db.transaction([schemaStore,sequenceStore, ...scoped.map(p => stores[p])], write ? 'readwrite' : 'readonly');
                         /**
                          * @param {any} error
@@ -621,7 +623,7 @@ export default class Adapter {
                         lookup={members:[where.args[0].name],values:[where.args[1].value]};
                 }
                 return run(scope,write,({tx,data,counter})=>{
-                    const affected=scope===null || enforceRelations && write ? paths : [scope];
+                    const affected=scope===null || write ? paths : [scope];
                     const before=Object.fromEntries(affected.map(p=>[p,data[p].map(row=>({key:row.key,row}))]));
                     const result=batchExec.plan({model:snapshot,operations:commands,rows:data,enforceRelations,
                         generate:({path,attribute,rows})=>{

@@ -424,7 +424,6 @@ test('all logical value types round-trip and decimals and integers compare exact
         {name:'flag',type:{name:'boolean'}},
         {name:'blob',type:{name:'binary'}},
         {name:'data',type:{name:'json'}},
-        {name:'vector',type:{name:'vector',params:{dimensions:2,element:'float'}}},
         {name:'day',type:{name:'date'}},
         {name:'time',type:{name:'datetime'}},
         {name:'choice',type:{name:'enum',params:{values:['a','b']}}},
@@ -433,9 +432,12 @@ test('all logical value types round-trip and decimals and integers compare exact
     const env = await open({schema});
     try {
         const repo = await env.provider.get({path:'/app/data'});
-        const input = {wide:'9007199254740993',amount:'9007199254740993.0001',flag:true,blob:'AQID',data:{nested:['x']},vector:[1,2],day:'2026-10-31',time:'2026-10-31T12:00:00',choice:'a',uuid:'abcdef12-3456-7890-abcd-ef1234567890'};
+        const input = {wide:'9007199254740993',amount:'9007199254740993.0001',flag:true,blob:'AQID',data:{nested:['x']},day:'2026-10-31',time:'2026-10-31T12:00:00',choice:'a',uuid:'abcdef12-3456-7890-abcd-ef1234567890'};
         const {record} = await repo.create({record:input});
         assert.deepEqual((await repo.read({key:key(record.id)})).record,record);
+        await assert.rejects(repo.create({record:{...input,code:'invalid-enum',choice:'other'}}),{code:'INVALID_INPUT'});
+        await assert.rejects(repo.update({key:key(record.id),changes:{choice:'other'}}),{code:'INVALID_INPUT'});
+        assert.equal((await repo.read({key:key(record.id)})).record.choice,'a');
         input.data.nested[0] = 'mutated';
         assert.equal((await repo.read({key:key(record.id)})).record.data.nested[0],'x');
         await repo.create({record:{...input,amount:'9007199254740993.0002',wide:'9007199254740992'}});
@@ -459,11 +461,23 @@ test('concurrent providers allocate distinct ids; sequence survives deletion', a
     } finally { await other.close(); await env.close(); }
 });
 
-test('relations are descriptive by default, optional enforcement is available', async () => {
-    const schema = {$format:2,$namespace:'/app/',parent:{attributes:[{name:'id',type:{name:'identity'}}]},child:{attributes:[{name:'owner',type:{name:'ref'}}],relations:{owner:{attributes:['owner'],target:{path:'/app/parent',attributes:['id']}}}}};
-    const env = await open({schema,enforceRelations:false});
-    try { assert.deepEqual(await (await env.provider.get({path:'/app/child'})).create({record:{owner:'999'}}),{record:{owner:'999'}}); }
-    finally { await env.close(); }
+test('DEM relation actions enforce defaults and cascade key updates and deletes per command', async () => {
+    const schema = {$format:2,$namespace:'/app/',parent:{attributes:[{name:'id',type:{name:'integer'}},{name:'code',type:{name:'text'}}],primaryKey:['id'],uniqueKeys:{by_code:['code']}},child:{attributes:[{name:'id',type:{name:'integer'}},{name:'owner',type:{name:'text'}}],primaryKey:['id'],relations:{owner:{attributes:['owner'],onDelete:'cascade',onUpdate:'cascade',target:{path:'/app/parent',attributes:['code']}}}}};
+    const env = await open({schema});
+    try {
+        const parent=await env.provider.get({path:'/app/parent'}),child=await env.provider.get({path:'/app/child'});
+        await parent.create({record:{id:'10',code:'A'}});await child.create({record:{id:'1',owner:'A'}});
+        const result=await env.provider.execute({operations:[
+            {path:'/app/parent',method:'update',params:{key:key('10'),changes:{code:'B'}}},
+            {path:'/app/child',method:'read',params:{key:{kind:'primary',values:{id:'1'}}}},
+        ]});
+        assert.equal(result.results[1].record.owner,'B');
+        await env.provider.execute({operations:[{path:'/app/parent',method:'delete',params:{key:key('10')}}]});
+        assert.equal((await child.read({key:{kind:'primary',values:{id:'1'}}})).record,null);
+        const restrictive={$format:2,$namespace:'/app/',parent:{attributes:[{name:'id',type:{name:'integer'}},{name:'code',type:{name:'text'}}],primaryKey:['id'],uniqueKeys:{by_code:['code']}},child:{attributes:[{name:'id',type:{name:'integer'}},{name:'owner',type:{name:'text'}}],primaryKey:['id'],relations:{owner:{attributes:['owner'],target:{path:'/app/parent',attributes:['code']}}}}};
+        await assert.rejects(adapter.open({model:await compile(restrictive),name:env.name+'-relaxed',enforceRelations:false}),{code:'UNSUPPORTED'});
+        await assert.rejects(child.create({record:{id:'2',owner:'missing'}}),{code:'RELATION'});
+    } finally { await env.close(); }
 });
 
 test('missing database is not implicitly initialized and incompatible model is rejected', async () => {

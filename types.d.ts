@@ -4,7 +4,7 @@ export interface IdbConfiguration {
     model: DemModel;
     name: string;
     indexedDB?: IDBFactory;
-    enforceRelations?: boolean;
+    enforceRelations?: true;
     /** DEM Runtime binding for models containing extension types. */
     runtime?: {model: DemModel; normalize: unknown; selection: unknown; select: unknown; batch: unknown};
 }
