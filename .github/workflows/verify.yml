@@ -24,6 +24,13 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Check out current DEM
+        uses: actions/checkout@v4
+        with:
+          repository: teqfw/dem
+          ref: main
+          path: dem
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -36,6 +43,9 @@ jobs:
 
       - name: Install dependencies
         run: npm install --ignore-scripts
+
+      - name: Install current DEM source
+        run: npm install --ignore-scripts --no-save --package-lock=false ./dem
 
       - name: Run unit and real-browser verification
         run: npm run verify

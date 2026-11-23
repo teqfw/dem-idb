@@ -480,6 +480,22 @@ test('DEM relation actions enforce defaults and cascade key updates and deletes 
     } finally { await env.close(); }
 });
 
+test('update result includes values changed by a self-referential cascade', async () => {
+    const schema={$format:2,$namespace:'/app/',node:{
+        attributes:[{name:'id',type:{name:'integer'}},{name:'code',type:{name:'text'}},{name:'parent',type:{name:'text'}}],
+        primaryKey:['id'],uniqueKeys:{by_code:['code']},
+        relations:{parent:{attributes:['parent'],onUpdate:'cascade',target:{path:'/app/node',attributes:['code']}}},
+    }};
+    const env=await open({schema});
+    try {
+        const repo=await env.provider.get({path:'/app/node'});
+        await repo.create({record:{id:'1',code:'old',parent:'old'}});
+        const updated=await repo.update({key:key('1'),changes:{code:'new'}});
+        assert.deepEqual(updated.record,{id:'1',code:'new',parent:'new'});
+        assert.deepEqual((await repo.read({key:key('1')})).record,updated.record);
+    } finally {await env.close();}
+});
+
 test('missing database is not implicitly initialized and incompatible model is rejected', async () => {
     const name = 'dem-idb-missing-' + ++sequence;
     const backend = await adapter.open({model:await compile(simple),name});
