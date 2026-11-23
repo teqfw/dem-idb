@@ -448,6 +448,30 @@ test('all logical value types round-trip and decimals and integers compare exact
     } finally { await env.close(); }
 });
 
+test('enum writes enforce case and nullability without changing stored records on rejection', async () => {
+    const type = {name:'enum',params:{values:['a','b']}};
+    const schema = {$format:2,$namespace:'/app/',data:{attributes:[
+        {name:'id',type:{name:'identity'},generation:true},
+        {name:'required_choice',type},
+        {name:'optional_choice',type,nullable:true},
+    ]}};
+    const env = await open({schema});
+    try {
+        const repo = await env.provider.get({path:'/app/data'});
+        const {record} = await repo.create({record:{required_choice:'a',optional_choice:null}});
+        const recordKey = key(record.id);
+        assert.deepEqual((await repo.read({key:recordKey})).record,{id:record.id,required_choice:'a',optional_choice:null});
+        await repo.update({key:recordKey,changes:{optional_choice:'b'}});
+        assert.equal((await repo.read({key:recordKey})).record.optional_choice,'b');
+        await repo.update({key:recordKey,changes:{optional_choice:null}});
+        for (const changes of [{required_choice:null},{required_choice:'A'},{optional_choice:'B'},{optional_choice:'other'}]) {
+            await assert.rejects(repo.create({record:{required_choice:'a',optional_choice:null,...changes}}),{code:'INVALID_INPUT'});
+            await assert.rejects(repo.update({key:recordKey,changes}),{code:'INVALID_INPUT'});
+            assert.deepEqual((await repo.list({selection:{}})).records,[record]);
+        }
+    } finally { await env.close(); }
+});
+
 test('concurrent providers allocate distinct ids; sequence survives deletion', async () => {
     const env = await open({schema:simple});
     const other = await adapter.open({model:env.model,name:env.name});
