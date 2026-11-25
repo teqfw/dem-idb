@@ -682,17 +682,9 @@ test('Unicode scalar ordering, null placement and zero limit', async () => {
 });
 
 
-test('UUID identities and references use the same logical values', async () => {
-    const name = 'dem-idb-uuid-' + ++sequence;
+test('UUID identity profiles are rejected', async () => {
     const schema = {$format:2,$namespace:'/app/',item:{attributes:[{name:'id',type:{name:'identity'},generation:true}]}};
-    const {model} = await compiler.exec({schemas:[{packageName:'test',filename:'schema.json',document:schema}],map:{packageName:'test',filename:'map.json',document:{$format:1,identityProfiles:{'/app/item':{id:{type:'uuid'}}}}}});
-    const provider = await adapter.open({model,name});
-    try {
-        await provider.createSchema(); const repo = await provider.get({path:'/app/item'});
-        const {record} = await repo.create({record:{}});
-        assert.match(record.id,/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
-        assert.deepEqual(await repo.read({key:key(record.id)}),{record});
-    } finally { await provider.close(); await remove(name); }
+    await assert.rejects(compiler.exec({schemas:[{packageName:'test',filename:'schema.json',document:schema}],map:{packageName:'test',filename:'map.json',document:{$format:1,identityProfiles:{'/app/item':{id:{type:'uuid'}}}}}}),{name:'DemCompilationError'});
 });
 
 test('failed unique writes roll back generated sequence changes', async () => {

@@ -1,5 +1,9 @@
 # Release Notes
 
+## Unreleased
+
+- Restrict identity and ref to integer profiles and retain ordinary UUID attributes. Existing UUID-identity snapshot histories require host-directed migration before upgrading.
+
 ## 2.2.0 — 2026-11-23
 
 - Enforce DEM-declared delete and referenced-key update actions atomically in IndexedDB, including ordered batches and cascade-updated results.

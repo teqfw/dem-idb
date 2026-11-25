@@ -220,7 +220,7 @@ export default class Adapter {
                 for (const attribute of entity.attributes) {
                     if (!plain(attribute) || typeof attribute.nullable !== 'boolean' || !plain(attribute.type) || typeof attribute.type.name !== 'string' || !attribute.type.name) invalid('type');
                     if (attribute.type.params !== undefined && !plain(attribute.type.params)) invalid('type parameters');
-                    if (attribute.type.profile !== undefined && (!plain(attribute.type.profile) || !['uuid', 'int'].includes(attribute.type.profile.type))) invalid('type profile');
+                    if (attribute.type.profile !== undefined && (!plain(attribute.type.profile) || attribute.type.profile.type !== 'int' || !['small','regular','large'].includes(attribute.type.profile.capacity))) invalid('type profile');
                     if (attribute.generation !== undefined && typeof attribute.generation !== 'boolean') invalid('generation');
                     if (attribute.generation && attribute.type.name !== 'identity') invalid('generation');
                 }
@@ -338,6 +338,13 @@ export default class Adapter {
             if (!model?.entities || typeof name !== 'string' || !name) fail('INVALID_INPUT', 'A compiled DEM model and database name are required.');
             if (typeof enforceRelations !== 'boolean') fail('INVALID_INPUT', 'enforceRelations must be boolean.');
             const snapshot = /** @type {any} */ (JSON.parse(JSON.stringify(model)));
+            for (const entity of Object.values(snapshot.entities)) for (const attribute of entity.attributes ?? []) {
+                if (['identity','ref'].includes(attribute.type?.name)) {
+                    const profile = attribute.type.profile;
+                    if (!plain(profile) || profile.type !== 'int' || !['small','regular','large'].includes(profile.capacity))
+                        fail('UNSUPPORTED','Identity and ref attributes require an integer profile.');
+                }
+            }
             const hasRelations=Object.values(snapshot.entities).some(entity=>Object.values(entity.relations ?? {}).length>0);
             if (!enforceRelations && hasRelations) fail('UNSUPPORTED','DEM relation actions cannot be disabled for a model with relations.');
             const identity = canonical(snapshot);
@@ -647,7 +654,6 @@ export default class Adapter {
                     const before=Object.fromEntries(affected.map(p=>[p,data[p].map((/** @type {any} */ row)=>({key:row.key,row}))]));
                     const result=batchExec.plan({model:snapshot,operations:commands,rows:data,enforceRelations,
                         generate: /** @type {(input: any) => any} */ (({path,attribute,rows})=>{
-                            if (attribute.type.profile.type==='uuid') return globalThis.crypto.randomUUID();
                             let highest=BigInt(counter[path] ?? '0');
                             for (const entry of rows) if (BigInt(entry.record[attribute.name])>highest) highest=BigInt(entry.record[attribute.name]);
                             return (highest+1n).toString();

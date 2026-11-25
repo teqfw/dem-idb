@@ -6,7 +6,7 @@ DEM schema descriptors use Format 2. Format 1 schema descriptors are rejected by
 design, with no legacy compatibility mode; this is an intentional breaking
 contract. Host maps are separate and continue to use Format 1.
 
-The adapter creates one object store per effective entity, native non-unique lookup indexes where possible, and versioned schema snapshots. It supports create/read/update/delete/list, primary and named unique keys (including composite keys), keyless entities, defaults, integer and UUID identity generation, and all DEM core logical value types. No additional production library or IndexedDB wrapper is required.
+The adapter creates one object store per effective entity, native non-unique lookup indexes where possible, and versioned schema snapshots. It supports create/read/update/delete/list, primary and named unique keys (including composite keys), keyless entities, defaults, integer identity generation and all DEM core logical value types. No additional production library or IndexedDB wrapper is required.
 
 ## Installation
 
@@ -60,7 +60,15 @@ For DI substitution, map `TeqFw_Dem_Api_RepositoryProvider$` to `TeqFw_Dem_IDb_P
 
 ## Compatibility and capabilities
 
-Records use DEM normalization: exact integers, decimals and int identities are strings; dates/datetimes and UUIDs are canonical strings; binary is base64; JSON and selected extension values are detached by their DEM Runtime handlers. Generated integer identities use exact `BigInt` allocation and persistent counters; explicit identities advance the counter. UUID generation uses browser `crypto.randomUUID()`. Other generation policies reject as `UNSUPPORTED` before database access.
+DEM accepts only integer identity and ref profiles; generated identity values are
+exact decimal strings. Ordinary UUID attributes remain supported. UUID identity
+profiles are rejected. Existing UUID-identity models and IndexedDB schema snapshots
+require host-directed migration; the adapter does not convert them in place. An
+existing database with a UUID identity in its snapshot history cannot be opened by
+this adapter for export or conversion. Migrate the model and data before switching
+versions, using the previous adapter or another host-selected migration tool.
+
+Records use DEM normalization: exact integers, decimals and integer identities are strings; dates/datetimes and UUID attributes are canonical strings; binary is base64; JSON and selected extension values are detached by their DEM Runtime handlers. Generated integer identities use exact `BigInt` allocation and persistent counters; explicit identities advance the counter. Other generation policies reject as `UNSUPPORTED` before database access.
 
 Primary/unique keys and declared relation actions are checked in write transactions. Omitted relation actions mean `restrict`; `cascade` applies to delete and referenced-key update independently. Each command resolves its cascade effects before the next command in a batch, and a failed batch rolls back. All existing related data must already satisfy the selected model. `enforceRelations:false` is rejected when relations exist. The guarantee covers writes through this adapter; direct IndexedDB writes bypass it. Cross-database transactions are unsupported.
 

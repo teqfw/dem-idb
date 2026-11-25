@@ -17,6 +17,14 @@ test('rejects unsupported generation before opening storage', async () => {
     await assert.rejects(adapter.open({model,name:'test',indexedDB:{open:()=>assert.fail('must not open')}}),{code:'UNSUPPORTED'});
 });
 
+test('rejects non-integer identity profiles from a direct model before opening storage', async () => {
+    const model={entities:{'/app/item':{
+        attributes:[{name:'id',type:{name:'identity',profile:{type:'uuid'}},nullable:false,generation:true}],
+        primaryKey:['id'],uniqueKeys:{},indexes:{},relations:{},
+    }}};
+    await assert.rejects(adapter.open({model,name:'test',indexedDB:{open:()=>assert.fail('Storage must not be opened.')}}),{code:'UNSUPPORTED'});
+});
+
 test('closed backend rejects schema initialization and repository access', async () => {
     const backend = await adapter.open({model:{entities:{'/app/item':{attributes:[]}}},name:'test',indexedDB:{}});
     await backend.close();
