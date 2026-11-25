@@ -2,7 +2,11 @@
 
 ## Unreleased
 
-- Restrict identity and ref to integer profiles and retain ordinary UUID attributes. Existing UUID-identity snapshot histories require host-directed migration before upgrading.
+## 2.3.0 — 2026-11-25
+
+- Restrict identity and ref to integer profiles and retain ordinary UUID attributes.
+- Existing UUID-identity snapshot histories require host-directed migration before upgrading.
+- Require the published `@teqfw/dem` `^2.2.0` package.
 
 ## 2.2.0 — 2026-11-23
 
