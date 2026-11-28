@@ -11,7 +11,7 @@ The adapter creates one object store per effective entity, native non-unique loo
 ## Installation
 
 ```sh
-npm install @teqfw/dem@^2.2.0 @teqfw/dem-idb@^2.3.0 @teqfw/di@^2.11.0
+npm install @teqfw/dem@^2.2.0 @teqfw/dem-idb@^2.3.0 @teqfw/di@^2.12.1
 ```
 
 This release requires the published `@teqfw/dem` package at `^2.2.0`, which

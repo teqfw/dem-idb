@@ -1,44 +1,44 @@
 {
   "name": "@teqfw/dem-idb",
-  "version": "2.3.0",
+  "version": "2.3.1",
   "description": "IndexedDB persistence adapter for TeqFW Domain Entity Model.",
-  "type": "module",
   "license": "Apache-2.0",
-  "files": [
-    "src/",
-    "CHANGELOG.md",
-    "README.md",
-    "LICENSE",
-    "types.d.ts",
-    "skills/"
-  ],
-  "scripts": {
-    "test": "node --test test/integration.test.mjs test/unit/*.test.mjs test/unit/Api/*.test.mjs test/unit/Type/CryptoKey/*.test.mjs",
-    "verify": "npm test && npm run test:browser",
-    "typecheck": "tsc -p jsconfig.json",
-    "test:browser": "node --test test/browser/Runtime.test.mjs"
-  },
-  "dependencies": {
-    "@teqfw/dem": "^2.2.0"
-  },
-  "peerDependencies": {
-    "@teqfw/di": "^2.11.0"
-  },
-  "devDependencies": {
-    "typescript": "^5.9.3",
-    "@types/node": "^22.20.5"
-  },
-  "types": "types.d.ts",
-  "exports": {
-    ".": {
-      "types": "./types.d.ts"
-    }
-  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/teqfw/dem-idb.git"
   },
   "homepage": "https://github.com/teqfw/dem-idb#readme",
+  "files": [
+    "CHANGELOG.md",
+    "LICENSE",
+    "README.md",
+    "skills/",
+    "src/",
+    "types.d.ts"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./types.d.ts"
+    }
+  },
+  "types": "types.d.ts",
+  "scripts": {
+    "test": "node --test test/integration.test.mjs test/unit/*.test.mjs test/unit/Api/*.test.mjs test/unit/Type/CryptoKey/*.test.mjs",
+    "test:browser": "node --test test/browser/Runtime.test.mjs",
+    "typecheck": "tsc -p jsconfig.json",
+    "verify": "npm test && npm run test:browser"
+  },
+  "dependencies": {
+    "@teqfw/dem": "^2.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^5.9.3"
+  },
+  "peerDependencies": {
+    "@teqfw/di": "^2.12.1"
+  },
   "publishConfig": {
     "access": "public"
   },
@@ -47,9 +47,9 @@
       "di": {
         "namespaces": [
           {
-            "prefix": "TeqFw_Dem_IDb_",
+            "ext": ".mjs",
             "path": "./src",
-            "ext": ".mjs"
+            "prefix": "TeqFw_Dem_IDb_"
           }
         ]
       }

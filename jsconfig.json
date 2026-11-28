@@ -4,6 +4,7 @@
     "forceConsistentCasingInFileNames": true,
     "module": "nodenext",
     "moduleResolution": "nodenext",
+    "maxNodeModuleJsDepth": 0,
     "noEmit": true,
     "skipLibCheck": true,
     "strict": true,

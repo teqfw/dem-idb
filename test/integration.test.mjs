@@ -8,4 +8,5 @@ test('package metadata identifies the browser adapter foundation', async () => {
     assert.equal(pkg.type, 'module');
     assert.equal(pkg.license, 'Apache-2.0');
     assert.equal(pkg.dependencies['@teqfw/dem'], '^2.2.0');
+    assert.equal(pkg.peerDependencies['@teqfw/di'], '^2.12.1');
 });

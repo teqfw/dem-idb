@@ -31,7 +31,7 @@ export default class Adapter {
         };
         /**
          * @param {any} arg
-         * @param {string[]} fields
+         * @param {Array<string>} fields
          * @returns {void}
          */
         const shape = function (arg, fields) {
@@ -523,7 +523,7 @@ export default class Adapter {
              * @param {any} [lookup]
              * @returns {Promise<any>}
              */
-            /** @param {any} path @param {boolean} write @param {(context: any) => any} execute @param {any} [lookup] @returns {Promise<any>} */
+            /** @param {any} path @param {boolean} write @param {any} execute @param {any} [lookup] @returns {Promise<any>} */
             const run = async function (path, write, execute, lookup) {
                 const db = await ensure();
                 return new Promise((resolve, reject) => {

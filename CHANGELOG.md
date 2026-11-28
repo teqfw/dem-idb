@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 2.3.1 — 2026-11-28
+
+- Require `@teqfw/di` `^2.12.1`.
+- Limit JavaScript typechecking in `node_modules` and align the package manifest ordering.
+- Use validator-compatible JSDoc types.
+
 ## 2.3.0 — 2026-11-25
 
 - Restrict identity and ref to integer profiles and retain ordinary UUID attributes.
